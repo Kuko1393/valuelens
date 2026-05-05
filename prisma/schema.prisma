@@ -1,0 +1,75 @@
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+model Company {
+  id           String           @id @default(cuid())
+  ticker       String           @unique
+  name         String
+  sector       String?
+  exchange     String?
+  marketCap    Float?
+  score        Float?
+  category     String?
+  updatedAt    DateTime         @updatedAt
+  metrics      Metric?
+  valuation    Valuation?
+  guidances    GuidanceHistory[]
+  guidanceMeta GuidanceMeta?
+}
+model Metric {
+  id               String  @id @default(cuid())
+  companyId        String  @unique
+  roic             Float?
+  revenueCAGR3Y    Float?
+  netDebtEbitda    Float?
+  interestCoverage Float?
+  fcfYield         Float?
+  guidanceScore    Float?
+  marginOfSafety   Float?
+  company          Company @relation(fields: [companyId], references: [id])
+}
+model Valuation {
+  id             String  @id @default(cuid())
+  companyId      String  @unique
+  pe             Float?
+  peg            Float?
+  evEbit         Float?
+  pFcf           Float?
+  intrinsicValue Float?
+  company        Company @relation(fields: [companyId], references: [id])
+}
+model GuidanceHistory {
+  id            String   @id @default(cuid())
+  ticker        String
+  year          Int
+  metric        String
+  guidanceValue String?
+  guidanceLow   String?
+  guidanceHigh  String?
+  actualValue   String?
+  beat          Boolean?
+  sourceUrl     String?
+  extractedAt   DateTime @default(now())
+  company       Company  @relation(fields: [ticker], references: [ticker])
+  @@unique([ticker, year, metric])
+  @@index([ticker])
+}
+model GuidanceMeta {
+  ticker         String   @id
+  lastReportDate DateTime
+  lastSearchedAt DateTime
+  dataQuality    String
+  company        Company  @relation(fields: [ticker], references: [ticker])
+}
+model Watchlist {
+  id        String   @id @default(cuid())
+  name      String
+  tickers   String[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
