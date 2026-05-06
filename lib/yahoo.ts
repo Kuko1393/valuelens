@@ -16,14 +16,15 @@ export async function getFinancials(ticker: string): Promise<FinancialData | nul
   try {
     // Cast to any to avoid yahoo-finance2's strict `this`-context TypeScript constraints
     const yf = yahooFinance as any
+    const fetchOpts = { validateResult: false }
     const [quote, summary] = await Promise.all([
-      yf.quote(ticker),
+      yf.quote(ticker, {}, fetchOpts),
       yf.quoteSummary(ticker, {
         modules: [
           'summaryDetail', 'defaultKeyStatistics', 'financialData',
           'incomeStatementHistory', 'cashflowStatementHistory', 'earningsHistory',
         ],
-      }).catch(() => ({})),
+      }, fetchOpts).catch(() => ({})),
     ])
 
     if (!quote || !quote.regularMarketPrice) return null
