@@ -24,7 +24,6 @@ export const TICKER_UNIVERSE: string[] = [
   'DSY.PA',   // Dassault Systèmes
   'KER.PA',   // Kering
   'BNP.PA',   // BNP Paribas
-  'AXA.PA',   // AXA
   'DG.PA',    // Vinci
   'SGO.PA',   // Saint-Gobain
   'ML.PA',    // Michelin
@@ -38,7 +37,7 @@ export const TICKER_UNIVERSE: string[] = [
   'CA.PA',    // Carrefour
   'GLE.PA',   // Société Générale
   'ACA.PA',   // Crédit Agricole
-  'STM.PA',   // STMicroelectronics
+  'STMPA.PA', // STMicroelectronics
   'RNO.PA',   // Renault
   'EN.PA',    // Bouygues
 
@@ -52,12 +51,9 @@ export const TICKER_UNIVERSE: string[] = [
   'ALO.PA',   // Alstom
   'TFI.PA',   // TF1
   'IPN.PA',   // Ipsen
-  'FTI.PA',   // TechnipFMC
-  'TKTT.PA',  // Tikehau Capital
   'COFA.PA',  // Coface
-  'ATO.PA',   // Atos (restructuring, risqué)
+  'ATO.PA',   // Atos
   'GTT.PA',   // Gaztransport & Technigaz
-  'MLMF.PA',  // Maisons du Monde
   'VIV.PA',   // Vivendi
 
   // ── Allemagne – DAX 40 ─────────────────────────────────────────────────────
@@ -83,14 +79,12 @@ export const TICKER_UNIVERSE: string[] = [
   'CON.DE',   // Continental
 
   // ── Suisse ────────────────────────────────────────────────────────────────
-  'ROG.SW',   // Roche
   'NESN.SW',  // Nestlé
   'NOVN.SW',  // Novartis
   'UHR.SW',   // Swatch
   'ABBN.SW',  // ABB
   'ZURN.SW',  // Zurich Insurance
   'GIVN.SW',  // Givaudan
-  'CSGN.SW',  // Credit Suisse (fusionné UBS) → skip or use 'UBSG.SW'
   'UBSG.SW',  // UBS
   'PGHN.SW',  // Partners Group
   'SREN.SW',  // Swiss Re
@@ -103,7 +97,6 @@ export const TICKER_UNIVERSE: string[] = [
   'AD.AS',    // Ahold Delhaize
   'RAND.AS',  // Randstad
   'PHIA.AS',  // Philips
-  'DSM.AS',   // DSM-Firmenich
   'WKL.AS',   // Wolters Kluwer
 
   // ── Royaume-Uni ───────────────────────────────────────────────────────────
@@ -117,7 +110,6 @@ export const TICKER_UNIVERSE: string[] = [
   'HSBA.L',   // HSBC
   'LLOY.L',   // Lloyds
   'BATS.L',   // British American Tobacco
-  'RELX.L',   // RELX
   'VOD.L',    // Vodafone
   'BHP.L',    // BHP
   'CPG.L',    // Compass Group
