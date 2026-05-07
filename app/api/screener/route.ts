@@ -62,33 +62,60 @@ async function getRow(ticker: string): Promise<ScreenerRow | null> {
   return row
 }
 
+function serverSort(rows: ScreenerRow[], sortBy: keyof ScreenerRow, sortDir: 'asc' | 'desc'): ScreenerRow[] {
+  return [...rows].sort((a, b) => {
+    const av = a[sortBy] as any
+    const bv = b[sortBy] as any
+    if (av == null && bv == null) return 0
+    if (av == null) return 1   // nulls always last
+    if (bv == null) return -1
+    if (typeof av === 'string') {
+      return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av)
+    }
+    return sortDir === 'asc' ? av - bv : bv - av
+  })
+}
+
 export async function GET(req: NextRequest) {
-  const sp       = new URL(req.url).searchParams
+  const sp = new URL(req.url).searchParams
+
+  // Filters
   const sector   = sp.get('sector')
   const minScore = Number(sp.get('minScore') ?? 0)
-  const maxPE    = sp.get('maxPE')    ? Number(sp.get('maxPE'))    : null
-  const minMoS   = sp.get('minMarginOfSafety') ? Number(sp.get('minMarginOfSafety')) : null
+  const maxPE    = sp.get('maxPE')               ? Number(sp.get('maxPE'))               : null
+  const minMoS   = sp.get('minMarginOfSafety')   ? Number(sp.get('minMarginOfSafety'))   : null
   const category = sp.get('category')
   const q        = sp.get('q')?.toUpperCase()
-  const page     = Math.max(1, Number(sp.get('page') ?? 1))
-  const limit    = Math.min(100, Math.max(1, Number(sp.get('limit') ?? 20)))
+
+  // Sort (server-side — applied before pagination so all pages are consistent)
+  const validKeys = new Set<string>([
+    'ticker','name','sector','price','marketCap','score','category',
+    'pe','marginOfSafety','grossMargin','fcfYield','roic','revGrowth3Y','debtToEbitda',
+  ])
+  const rawSortBy = sp.get('sortBy') ?? 'score'
+  const sortBy  = validKeys.has(rawSortBy) ? rawSortBy as keyof ScreenerRow : 'score'
+  const sortDir = (sp.get('sortDir') === 'asc') ? 'asc' : 'desc'
+
+  // Pagination
+  const page  = Math.max(1, Number(sp.get('page') ?? 1))
+  const limit = Math.min(100, Math.max(1, Number(sp.get('limit') ?? 25)))
 
   const { default: pLimit } = await import('p-limit')
 
-  // ── 1. Read all cached rows in parallel (fast, ~2-5ms each) ──────────────
+  // ── 1. Read ALL cached rows in parallel (fast KV reads) ───────────────────
   const readLim = pLimit(20)
-  const cached = await Promise.all(
+  const cacheResults = await Promise.all(
     TICKER_UNIVERSE.map(t => readLim(() => getCache<ScreenerRow>(`screener:${t}`)))
   )
 
   const cachedRows: ScreenerRow[] = []
   const uncached: string[] = []
   TICKER_UNIVERSE.forEach((t, i) => {
-    if (cached[i]) cachedRows.push(cached[i]!)
+    if (cacheResults[i]) cachedRows.push(cacheResults[i]!)
     else uncached.push(t)
   })
 
-  // ── 2. Fetch a small batch of uncached tickers (within timeout budget) ───
+  // ── 2. Live-fetch a small batch of uncached tickers ────────────────────────
   const LIVE_BATCH = q ? 5 : 8
   const toLive = q
     ? uncached.filter(t => t.toUpperCase().startsWith(q)).slice(0, LIVE_BATCH)
@@ -99,26 +126,28 @@ export async function GET(req: NextRequest) {
     await Promise.all(toLive.map(t => fetchLim(() => getRow(t))))
   ).filter(Boolean) as ScreenerRow[]
 
-  // ── 3. Merge, filter, sort, paginate ─────────────────────────────────────
+  // ── 3. Filter across ALL available data ───────────────────────────────────
   let all = [...cachedRows, ...fresh]
 
-  if (q)        all = all.filter(r => r.ticker.includes(q) || r.name.toUpperCase().includes(q))
-  if (sector)   all = all.filter(r => r.sector === sector)
-  if (minScore) all = all.filter(r => r.score >= minScore)
-  if (maxPE !== null) all = all.filter(r => r.pe !== null && r.pe <= maxPE)
+  if (q)             all = all.filter(r => r.ticker.includes(q) || r.name.toUpperCase().includes(q))
+  if (sector)        all = all.filter(r => r.sector === sector)
+  if (minScore)      all = all.filter(r => r.score >= minScore)
+  if (maxPE !== null)  all = all.filter(r => r.pe !== null && r.pe <= maxPE)
   if (minMoS !== null) all = all.filter(r => r.marginOfSafety !== null && r.marginOfSafety >= minMoS)
-  if (category) all = all.filter(r => r.category === category)
+  if (category)      all = all.filter(r => r.category === category)
 
-  all.sort((a, b) => b.score - a.score)
-
-  const total = all.length
-  const companies = all.slice((page - 1) * limit, page * limit)
+  // ── 4. Sort THEN paginate (correct order) ─────────────────────────────────
+  const sorted = serverSort(all, sortBy, sortDir)
+  const total  = sorted.length
+  const companies = sorted.slice((page - 1) * limit, page * limit)
 
   return NextResponse.json({
     companies,
     total,
     page,
     limit,
+    sortBy,
+    sortDir,
     cached: cachedRows.length,
     universe: TICKER_UNIVERSE.length,
   })
