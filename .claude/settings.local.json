@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-Content \"C:\\\\Users\\\\LAPTOP~1\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-laptop-R-Downloads-valuelens\\\\b11db81d-c2e4-453b-b620-a56bdf15ce39\\\\tasks\\\\b29xvmczb.output\" -Wait)",
+      "Bash(Select-String -Pattern \"error TS|Error:|compiled|Route \\\\\\(|✓|✗|Failed|✓ Compiled\" --SimpleMatch)",
+      "PowerShell($pkg = Get-Content \"C:\\\\Users\\\\laptop R\\\\Downloads\\\\valuelens\\\\node_modules\\\\yahoo-finance2\\\\package.json\" | ConvertFrom-Json; $pkg.exports | ConvertTo-Json -Depth 5)",
+      "PowerShell(cd \"C:\\\\Users\\\\laptop R\\\\Downloads\\\\valuelens\" ; Get-Content .env.local | ForEach-Object { \\($_ -split '='\\)[0] })",
+      "PowerShell(cd \"C:\\\\Users\\\\laptop R\\\\Downloads\\\\valuelens\" ; $env:DOTENV_CONFIG_PATH=\".env.production\" ; npx dotenv -e .env.production -- npx prisma db push 2>&1)",
+      "PowerShell(cd \"C:\\\\Users\\\\laptop R\\\\Downloads\\\\valuelens\" ; Get-Content .env.production | Where-Object { $_ -match \"^DATABASE_URL=\" -or $_ -match \"^DATABASE_URL_UNPOOLED=\" } | ForEach-Object { $parts = $_ -split \"=\", 2; [System.Environment]::SetEnvironmentVariable\\($parts[0], $parts[1]\\) } ; npx prisma db push 2>&1)",
+      "PowerShell(cd \"C:\\\\Users\\\\laptop R\\\\Downloads\\\\valuelens\" ; Get-Content .env.production | Where-Object { $_ -match \"^DATABASE|^POSTGRES\" } | ForEach-Object { $k = \\($_ -split \"=\"\\)[0]; $v = \\($_ -split \"=\", 2\\)[1]; Write-Host \"$k = $\\(if \\($v.Length -gt 0\\) { '[' + $v.Length + ' chars]' } else { '[EMPTY]' }\\)\" })",
+      "PowerShell(where.exe vercel 2>$null; if \\(-not $?\\) { \"NOT_FOUND\" })",
+      "mcp__claude_ai_Vercel__get_runtime_logs",
+      "mcp__claude_ai_Vercel__list_deployments",
+      "PowerShell(Invoke-RestMethod -Uri \"https://project-d7s37.vercel.app/api/company/AAPL\" -Method GET -TimeoutSec 30 2>&1 | ConvertTo-Json -Depth 3)",
+      "PowerShell(Invoke-RestMethod -Uri \"https://project-d7s37.vercel.app/api/company/AAPL\" -Method GET -TimeoutSec 30 | ConvertTo-Json)",
+      "mcp__claude_ai_Vercel__get_deployment_build_logs",
+      "Bash(npm install *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(git commit -m 'fix: remove 4 Yahoo Finance-incompatible tickers \\(AXA.PA, ROG.SW, DSM.AS, RELX.L\\) *)",
+      "Bash(git commit -m 'feat: refresh route now updates both company + screener caches *)",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(json.dumps\\({k:v for k,v in d.get\\('dependencies',{}\\).items\\(\\) if 'anthropic' in k or 'prisma' in k.lower\\(\\)}, indent=2\\)\\)\")",
+      "PowerShell(Get-Content \"C:\\\\Users\\\\laptop R\\\\Downloads\\\\valuelens\\\\.env.local\" | Where-Object { $_ -match \"DATABASE|POSTGRES|NEON\" } | ForEach-Object { $_.Substring\\(0, [Math]::Min\\(50, $_.Length\\)\\) + \"...\" })"
+    ]
+  }
+}

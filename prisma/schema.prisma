@@ -73,3 +73,54 @@ model Watchlist {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+model InvestmentIdea {
+  id        String   @id @default(cuid())
+  ticker    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Company info
+  company  String
+  country  String
+  sector   String
+
+  // Investment thesis
+  thesis    String
+  catalysts String[]
+  valuation String?
+  risks     String[]
+
+  // Valuation metrics snapshot
+  per            Float?
+  evEbit         Float?
+  fcfYield       Float?
+  revGrowth3Y    Float?
+  debtToEbitda   Float?
+  marginOfSafety Float?
+  valuationClass String
+
+  // Thesis challenge
+  implicitAssumptions String[]
+  weakPoints          String[]
+  hiddenRisks         String[]
+  marketingArgs       String[]
+  whyBadIdea          String
+
+  // Scoring (/100)
+  discountScore        Float
+  catalystScore        Float
+  businessQualityScore Float
+  thesisSolidityScore  Float
+  accessibilityScore   Float
+  sourceQualityScore   Float
+  totalScore           Float
+
+  // Conviction
+  convictionLevel  String
+  convictionReason String
+
+  @@index([ticker])
+  @@index([totalScore])
+  @@index([convictionLevel])
+}
