@@ -1,72 +1,186 @@
 'use client'
+
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { ScoreGauge, CategoryBadge } from '@/components/UI'
+import { Loader2, TrendingUp, Flame, Zap, BarChart3, Star, ChevronRight } from 'lucide-react'
+import ScoreGauge from '@/components/ScoreGauge'
+import CategoryBadge from '@/components/CategoryBadge'
+import type { Idea } from '@/app/api/ideas/route'
 
-export default function IdeasPage() {
-  const [ideas, setIdeas] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
-  const [selected, setSelected] = useState<string|null>(null)
+type Filter = 'all' | 'deep-value' | 'quality-drawdown' | 'fcf-machine' | 'growth-compressed' | 'compounder'
 
-  useEffect(() => {
-    fetch('/api/screener?sortBy=score&sortDir=desc&limit=100')
-      .then(r=>r.json()).then(d=>{
-        const rows = d.data||[]
-        const out: any[] = []
-        rows.filter((r:any)=>r.fcfYield>8&&r.pe&&r.pe<12).forEach((r:any)=>out.push({...r,signal:'anomalies',detail:`FCF Yield ${r.fcfYield?.toFixed(1)}% + P/E ${r.pe?.toFixed(1)}x`}))
-        rows.filter((r:any)=>r.roic>15&&r.marginOfSafety>25).forEach((r:any)=>{if(!out.find(i=>i.ticker===r.ticker))out.push({...r,signal:'drawdown',detail:`ROIC ${r.roic?.toFixed(1)}% | MoS +${r.marginOfSafety?.toFixed(1)}%`})})
-        rows.filter((r:any)=>r.score>65&&r.marginOfSafety>15&&r.category==='Quality Value').forEach((r:any)=>{if(!out.find(i=>i.ticker===r.ticker))out.push({...r,signal:'quality',detail:`Score ${r.score}/100 | MoS +${r.marginOfSafety?.toFixed(1)}%`})})
-        setIdeas(out.slice(0,48))
-      }).finally(()=>setLoading(false))
-  }, [])
+const SIGNAL_META: Record<string, { label: string; icon: React.ReactNode; accent: string; bg: string }> = {
+  'deep-value':        { label: 'Deep Value',        icon: <TrendingUp className="w-4 h-4" />, accent: '#3b82f6', bg: '#1e3a5f' },
+  'quality-drawdown':  { label: 'Quality on Sale',   icon: <Flame className="w-4 h-4" />,      accent: '#10b981', bg: '#052e16' },
+  'fcf-machine':       { label: 'FCF Machine',        icon: <Zap className="w-4 h-4" />,        accent: '#f59e0b', bg: '#1c1200' },
+  'growth-compressed': { label: 'Growth Undervalued', icon: <BarChart3 className="w-4 h-4" />,  accent: '#a855f7', bg: '#1a0a2e' },
+  'compounder':        { label: 'Elite Compounder',   icon: <Star className="w-4 h-4" />,       accent: '#f43f5e', bg: '#1c0010' },
+}
 
-  const SIGNALS: Record<string,{label:string;color:string}> = {
-    anomalies:{label:'🔍 Anomalies de valorisation',color:'var(--info)'},
-    drawdown:{label:'📉 Quality après drawdown',color:'var(--warning)'},
-    quality:{label:'⭐ Quality Value',color:'var(--accent)'},
-  }
+function MetricPill({ label, value, good }: { label: string; value: string; good?: boolean }) {
+  return (
+    <div className="flex flex-col">
+      <span className="text-[10px] text-[#6b7280] uppercase tracking-wider">{label}</span>
+      <span className={`text-sm font-mono font-semibold ${good === true ? 'text-emerald-400' : good === false ? 'text-red-400' : 'text-white'}`}>
+        {value}
+      </span>
+    </div>
+  )
+}
+
+function IdeaCard({ idea }: { idea: Idea }) {
+  const meta = SIGNAL_META[idea.signalKey] ?? { label: idea.signal, icon: <Star className="w-4 h-4" />, accent: '#6b7280', bg: '#1e2332' }
 
   return (
-    <div style={{minHeight:'100vh',background:'var(--bg)'}}>
-      <nav style={{position:'sticky',top:0,zIndex:50,background:'rgba(6,10,18,.92)',backdropFilter:'blur(12px)',borderBottom:'1px solid var(--border)',padding:'0 24px',display:'flex',alignItems:'center',gap:32,height:56}}>
-        <Link href="/" style={{display:'flex',alignItems:'center',gap:8,textDecoration:'none'}}>
-          <span style={{fontWeight:700,fontSize:15,color:'var(--text-bright)'}}>Value<span style={{color:'var(--accent)'}}>Lens</span></span>
-        </Link>
-        {[{href:'/',label:'Screener'},{href:'/ideas',label:'Opportunités'},{href:'/watchlist',label:'Watchlists'}].map(l=>(
-          <Link key={l.href} href={l.href} style={{padding:'6px 14px',borderRadius:6,fontSize:13,fontWeight:500,textDecoration:'none',color:l.href==='/ideas'?'var(--accent)':'var(--text-dim)',background:l.href==='/ideas'?'var(--accent-dim)':'transparent'}}>{l.label}</Link>
-        ))}
-      </nav>
-      <div style={{maxWidth:1200,margin:'0 auto',padding:24}}>
-        <h1 style={{margin:'0 0 6px',fontSize:22,fontWeight:700,color:'var(--text-bright)'}}>Idea Generation</h1>
-        <p style={{margin:'0 0 24px',color:'var(--text-dim)',fontSize:14}}>Situations inhabituelles détectées automatiquement</p>
-        {loading ? <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(300px,1fr))',gap:16}}>{Array.from({length:6}).map((_,i)=><div key={i} className="skeleton" style={{height:130}}/>)}</div> : (
-          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(300px,1fr))',gap:16}}>
-            {ideas.map(idea=>{
-              const sig = SIGNALS[idea.signal]||{label:idea.signal,color:'var(--text-dim)'}
-              return (
-                <div key={idea.ticker} className="card card-hover" onClick={()=>setSelected(idea.ticker)} style={{padding:16}}>
-                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:10}}>
-                    <div>
-                      <div style={{fontWeight:600,color:'var(--text-bright)',fontSize:14}}>{idea.name?.slice(0,24)}</div>
-                      <div style={{fontFamily:'JetBrains Mono,monospace',fontSize:12,color:'var(--accent)'}}>{idea.ticker}</div>
-                    </div>
-                    <ScoreGauge score={idea.score} size={42}/>
-                  </div>
-                  <div style={{marginBottom:10,padding:'5px 10px',borderRadius:6,background:`${sig.color}15`,border:`1px solid ${sig.color}30`}}>
-                    <div style={{fontSize:11,color:sig.color,fontWeight:600}}>{sig.label}</div>
-                    <div style={{fontSize:11,color:'var(--text-dim)',marginTop:2}}>{idea.detail}</div>
-                  </div>
-                  <div style={{display:'flex',gap:16,justifyContent:'space-between',alignItems:'center'}}>
-                    <div><div style={{fontFamily:'JetBrains Mono,monospace',fontSize:14,fontWeight:600}}>{idea.price?.toFixed(2)}</div><div style={{fontSize:10,color:'var(--muted)'}}>Prix</div></div>
-                    <div style={{textAlign:'right'}}><div style={{fontFamily:'JetBrains Mono,monospace',fontSize:12,fontWeight:600,color:idea.marginOfSafety>0?'var(--accent)':'var(--danger)'}}>{idea.marginOfSafety!==null?`${idea.marginOfSafety>0?'+':''}${idea.marginOfSafety.toFixed(1)}%`:'—'}</div><div style={{fontSize:10,color:'var(--muted)'}}>MoS</div></div>
-                    <CategoryBadge category={idea.category}/>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        )}
+    <Link href={`/company/${idea.ticker}`}
+      className="group block bg-[#141824] border border-[#2d3748] rounded-xl p-5 hover:border-[#4b5563] hover:bg-[#1a2035] transition-all">
+      {/* Signal badge */}
+      <div className="flex items-center justify-between mb-4">
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold"
+          style={{ color: meta.accent, background: meta.bg, border: `1px solid ${meta.accent}30` }}>
+          {meta.icon}{meta.label}
+        </span>
+        <ScoreGauge score={idea.score} size="sm" showLabel={false} />
       </div>
+
+      {/* Company */}
+      <div className="mb-3">
+        <div className="flex items-center justify-between">
+          <span className="font-mono font-bold text-blue-400 text-base group-hover:text-blue-300 transition-colors">
+            {idea.ticker}
+          </span>
+          <span className="font-mono text-white text-sm">${idea.price.toFixed(2)}</span>
+        </div>
+        <p className="text-sm text-[#9ca3af] mt-0.5 truncate">{idea.name}</p>
+      </div>
+
+      {/* Reason */}
+      <p className="text-xs text-[#9ca3af] mb-4 leading-relaxed">{idea.reason}</p>
+
+      {/* Metrics grid */}
+      <div className="grid grid-cols-3 gap-3 pt-3 border-t border-[#1e2332]">
+        {idea.pe != null && (
+          <MetricPill label="P/E" value={`${idea.pe.toFixed(1)}x`} good={idea.pe < 15} />
+        )}
+        {idea.marginOfSafety != null && (
+          <MetricPill label="MoS" value={`${idea.marginOfSafety > 0 ? '+' : ''}${idea.marginOfSafety.toFixed(1)}%`}
+            good={idea.marginOfSafety > 20} />
+        )}
+        {idea.roic != null && (
+          <MetricPill label="ROIC" value={`${idea.roic.toFixed(1)}%`} good={idea.roic > 15} />
+        )}
+        {idea.fcfYield != null && (
+          <MetricPill label="FCF Yld" value={`${idea.fcfYield.toFixed(1)}%`} good={idea.fcfYield > 6} />
+        )}
+        {idea.revGrowth3Y != null && (
+          <MetricPill label="Rev ↗" value={`${idea.revGrowth3Y > 0 ? '+' : ''}${idea.revGrowth3Y.toFixed(1)}%`}
+            good={idea.revGrowth3Y > 8} />
+        )}
+        <div className="flex flex-col">
+          <span className="text-[10px] text-[#6b7280] uppercase tracking-wider">Category</span>
+          <CategoryBadge category={idea.category} compact />
+        </div>
+      </div>
+
+      {/* CTA */}
+      <div className="mt-3 flex items-center justify-end text-xs text-[#6b7280] group-hover:text-blue-400 transition-colors gap-1">
+        View analysis <ChevronRight className="w-3 h-3" />
+      </div>
+    </Link>
+  )
+}
+
+const FILTERS: { key: Filter; label: string }[] = [
+  { key: 'all',               label: 'All Ideas' },
+  { key: 'deep-value',        label: 'Deep Value' },
+  { key: 'quality-drawdown',  label: 'Quality on Sale' },
+  { key: 'fcf-machine',       label: 'FCF Machine' },
+  { key: 'growth-compressed', label: 'Growth Undervalued' },
+  { key: 'compounder',        label: 'Elite Compounder' },
+]
+
+export default function IdeasPage() {
+  const [ideas, setIdeas]     = useState<Idea[]>([])
+  const [counts, setCounts]   = useState<Record<string, number>>({})
+  const [universeLoaded, setUniverseLoaded] = useState(0)
+  const [loading, setLoading] = useState(true)
+  const [filter, setFilter]   = useState<Filter>('all')
+
+  useEffect(() => {
+    fetch('/api/ideas')
+      .then(r => r.json())
+      .then(d => {
+        setIdeas(d.ideas ?? [])
+        setCounts(d.counts ?? {})
+        setUniverseLoaded(d.universeLoaded ?? 0)
+      })
+      .finally(() => setLoading(false))
+  }, [])
+
+  const visible = filter === 'all' ? ideas : ideas.filter(i => i.signalKey === filter)
+
+  const countFor = (k: Filter) => k === 'all' ? ideas.length : (counts[k] ?? 0)
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div>
+        <h1 className="text-2xl font-bold text-white">Investment Ideas</h1>
+        <p className="text-sm text-[#9ca3af] mt-1">
+          {loading
+            ? 'Scanning universe…'
+            : `${ideas.length} opportunities detected · ${universeLoaded} companies analysed`}
+        </p>
+      </div>
+
+      {/* Filter tabs */}
+      <div className="flex gap-2 overflow-x-auto pb-1">
+        {FILTERS.map(f => {
+          const count = countFor(f.key)
+          const meta  = SIGNAL_META[f.key]
+          return (
+            <button key={f.key} onClick={() => setFilter(f.key)}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-all border
+                ${filter === f.key
+                  ? 'bg-blue-600 border-blue-500 text-white'
+                  : 'bg-[#141824] border-[#2d3748] text-[#9ca3af] hover:text-white hover:border-[#4b5563]'}`}>
+              {meta?.icon ?? null}
+              {f.label}
+              <span className={`ml-1 text-xs px-1.5 py-0.5 rounded-full ${filter === f.key ? 'bg-blue-500 text-white' : 'bg-[#1e2332] text-[#6b7280]'}`}>
+                {count}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Grid */}
+      {loading ? (
+        <div className="flex items-center justify-center h-64 gap-3 text-[#9ca3af]">
+          <Loader2 className="w-5 h-5 animate-spin text-blue-400" />
+          Scanning {universeLoaded} companies for opportunities…
+        </div>
+      ) : visible.length === 0 ? (
+        <div className="flex flex-col items-center justify-center h-64 gap-3 text-[#9ca3af]">
+          <p>No opportunities detected yet.</p>
+          <p className="text-xs text-[#6b7280]">
+            {universeLoaded === 0
+              ? 'Cache is empty — visit the Screener first to load data.'
+              : 'Try visiting the Screener to load more companies.'}
+          </p>
+          <Link href="/" className="text-blue-400 hover:text-blue-300 text-sm">Go to Screener →</Link>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {visible.map(idea => <IdeaCard key={idea.ticker} idea={idea} />)}
+        </div>
+      )}
+
+      {universeLoaded > 0 && (
+        <p className="text-xs text-[#6b7280] text-center">
+          Based on {universeLoaded} cached companies · Data may be up to 12h old · Not financial advice
+        </p>
+      )}
     </div>
   )
 }
