@@ -6,7 +6,6 @@ const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
 const BASE_HEADERS = { 'user-agent': UA, 'accept-language': 'en-US,en;q=0.9', accept: '*/*' }
 
 // Yahoo Finance often returns {raw, fmt} objects even with formatted=false.
-// This helper safely extracts the numeric value from either format.
 function n(v: any): number | null {
   if (v == null) return null
   if (typeof v === 'number') return v
@@ -18,24 +17,42 @@ export interface FinancialData {
   ticker: string; name: string; price: number; marketCap: number | null
   sector: string | null; exchange: string | null; pe: number | null; peg: number | null
   evEbit: number | null; pFcf: number | null; fcfYield: number | null
-  revenue3Y: number[] | null; netIncome3Y: number[] | null; freeCashFlow3Y: number[] | null
-  totalDebt: number | null; totalCash: number | null; ebitda: number | null
-  interestExpense: number | null; sharesOutstanding: number | null
-  grossMargin: number | null; operatingMargin: number | null; roic: number | null
+
+  // P&L history (3 fiscal years, oldest → newest)
+  revenue3Y: number[] | null
+  ebitda3Y: number[] | null       // EBITDA: operatingIncome + D&A
+  netIncome3Y: number[] | null
+  freeCashFlow3Y: number[] | null
+
+  // Snapshot — most recent fiscal year
+  totalDebt: number | null        // short + long term
+  totalCash: number | null
+  ebitda: number | null           // from financialData (most reliable)
+  interestExpense: number | null   // most recent year (used for interest coverage)
+  sharesOutstanding: number | null
+  grossMargin: number | null
+  operatingMargin: number | null
+  roic: number | null
+
+  // Balance sheet (most recent year)
+  equity: number | null           // totalStockholderEquity (capitaux propres)
+  shortTermDebt: number | null    // dette à moins d'un an
+  longTermDebt: number | null     // dette à plus d'un an
+  ppe: number | null              // immobilisations corporelles (PP&E net)
+  receivables: number | null      // créances clients
+  inventory: number | null        // stocks
+  accountsPayable: number | null  // dettes fournisseurs
+
   earningsHistory: { period: string; epsEstimate: number | null; epsActual: number | null; surprisePercent: number | null }[] | null
   priceHistory3M: { date: string; close: number }[] | null
 }
 
 interface Session { cookies: string; crumb: string }
-
-// Module-level cache survives warm invocations (re-used within the same Lambda instance).
 let _session: Session | null = null
 
 async function getSession(): Promise<Session | null> {
   if (_session) return _session
   try {
-    // Yahoo Finance sets the A1 auth cookie on the first request.
-    // redirect:'follow' is fine for US-region servers (no GDPR redirect).
     const home = await fetch('https://finance.yahoo.com/', {
       headers: { ...BASE_HEADERS, accept: 'text/html,application/xhtml+xml' },
     })
@@ -47,7 +64,6 @@ async function getSession(): Promise<Session | null> {
     })
     if (!crumbRes.ok) return null
     const crumb = (await crumbRes.text()).trim()
-    // Sanity check: crumb is a short alphanumeric string, not an HTML page
     if (!crumb || crumb.length > 32 || crumb.includes('<')) return null
 
     _session = { cookies: cookieStr, crumb }
@@ -63,7 +79,6 @@ async function yfFetch(path: string, session: Session): Promise<any> {
   const url = `${YF_QUERY}${path}${sep}crumb=${encodeURIComponent(session.crumb)}`
   const res = await fetch(url, { headers: { ...BASE_HEADERS, cookie: session.cookies } })
   if (!res.ok) {
-    // Crumb may have expired — clear session so next call re-fetches
     if (res.status === 401 || res.status === 403) _session = null
     return null
   }
@@ -73,12 +88,15 @@ async function yfFetch(path: string, session: Session): Promise<any> {
 export async function getFinancials(ticker: string): Promise<FinancialData | null> {
   try {
     const session = await getSession()
-    if (!session) {
-      console.error('[yahoo] could not obtain session/crumb')
-      return null
-    }
+    if (!session) { console.error('[yahoo] could not obtain session/crumb'); return null }
 
-    const modules = 'summaryDetail,defaultKeyStatistics,financialData,incomeStatementHistory,cashflowStatementHistory,earningsHistory'
+    // Added balanceSheetHistory for bilan data
+    const modules = [
+      'summaryDetail', 'defaultKeyStatistics', 'financialData',
+      'incomeStatementHistory', 'cashflowStatementHistory',
+      'balanceSheetHistory', 'earningsHistory',
+    ].join(',')
+
     const [quoteData, summaryData] = await Promise.all([
       yfFetch(`/v7/finance/quote?symbols=${ticker}`, session),
       yfFetch(`/v10/finance/quoteSummary/${ticker}?modules=${modules}&formatted=false`, session),
@@ -87,47 +105,112 @@ export async function getFinancials(ticker: string): Promise<FinancialData | nul
     const q = quoteData?.quoteResponse?.result?.[0]
     if (!q || !q.regularMarketPrice) return null
 
-    const summary = summaryData?.quoteSummary?.result?.[0] ?? {}
-    const fd = summary.financialData ?? {}
-    const dks = summary.defaultKeyStatistics ?? {}
-    const sd = summary.summaryDetail ?? {}
+    const summary  = summaryData?.quoteSummary?.result?.[0] ?? {}
+    const fd       = summary.financialData ?? {}
+    const dks      = summary.defaultKeyStatistics ?? {}
+    const sd       = summary.summaryDetail ?? {}
     const ish: any[] = summary.incomeStatementHistory?.incomeStatementHistory ?? []
     const cfh: any[] = summary.cashflowStatementHistory?.cashflowStatements ?? []
-    const eh: any[] = summary.earningsHistory?.history ?? []
+    const eh:  any[] = summary.earningsHistory?.history ?? []
 
+    // Yahoo Finance's balanceSheetHistory no longer returns full data in their free API.
+    // We derive balance sheet metrics from financialData and defaultKeyStatistics instead.
+
+    // ── P&L history ─────────────────────────────────────────────────────────
     const revenue3Y = ish.length > 0
-      ? ish.slice(0, 3).map((s: any) => n(s.totalRevenue) ?? 0).reverse()
-      : null
-    const netIncome3Y = ish.length > 0
-      ? ish.slice(0, 3).map((s: any) => n(s.netIncome) ?? 0).reverse()
-      : null
+      ? ish.slice(0, 3).map((s: any) => n(s.totalRevenue) ?? 0).reverse() : null
 
-    // Try cashflow statements first; fall back to operating cash - capex names vary by API version
+    const netIncome3Y = ish.length > 0
+      ? ish.slice(0, 3).map((s: any) => n(s.netIncome) ?? 0).reverse() : null
+
+    // EBITDA (snapshot) — needed for 3Y fallback below
+    const ebitdaSnap: number | null = n(fd.ebitda)
+
+    // EBITDA 3Y: try EBIT+DA first, then approximate via EBITDA margin × revenue
+    let ebitda3Y: number[] | null = null
+    if (ish.length > 0 && cfh.length > 0) {
+      const direct = ish.slice(0, 3).map((s: any, i: number) => {
+        const ebit = n(s.ebit) ?? n(s.operatingIncome) ?? n(s.ebitda) ?? 0
+        const da   = n(cfh[i]?.depreciation) ?? n(cfh[i]?.depreciationAndAmortization) ?? 0
+        return ebit + Math.abs(da)
+      }).reverse()
+      ebitda3Y = direct.some(v => v !== 0) ? direct : null
+    }
+    // Fallback: apply current EBITDA margin to historical revenues
+    if (!ebitda3Y && ebitdaSnap && revenue3Y) {
+      const latestRevenue = n(fd.totalRevenue) ?? n(ish[0]?.totalRevenue)
+      if (latestRevenue && latestRevenue > 0) {
+        const ebitdaMargin = ebitdaSnap / latestRevenue
+        ebitda3Y = revenue3Y.map(rev => rev * ebitdaMargin)
+      }
+    }
+
+    // FCF 3Y = operating cash flow - capex
     const cfhFcf = cfh.length > 0
       ? cfh.slice(0, 3).map((s: any) => {
-          const ops = n(s.totalCashFromOperatingActivities) ?? n(s.operatingActivities) ?? 0
-          const capex = n(s.capitalExpenditures) ?? n(s.capitalExpenditure) ?? 0
+          const ops   = n(s.totalCashFromOperatingActivities) ?? n(s.operatingActivities)
+            ?? n(s.operatingCashflow) ?? 0
+          const capex = n(s.capitalExpenditures) ?? n(s.capitalExpenditure)
+            ?? n(s.purchaseOfPpe) ?? 0
           return ops - Math.abs(capex)
         }).reverse()
       : null
-    // freeCashflow from financialData is always reliable (most recent year)
+    // Try multiple sources for FCF snapshot
     const fcfLatest = n(fd.freeCashflow)
-    const freeCashFlow3Y = cfhFcf?.some(v => v !== 0) ? cfhFcf : null
+      ?? n(q.freeCashflow)
+      ?? (n(fd.operatingCashflow) && n(fd.capitalExpenditures)
+          ? (n(fd.operatingCashflow)! - Math.abs(n(fd.capitalExpenditures)!))
+          : null)
+    let freeCashFlow3Y = cfhFcf?.some(v => v !== 0) ? cfhFcf : null
 
-    const marketCap: number | null = n(q.marketCap)
-    const enterpriseValue: number | null = n(dks.enterpriseValue)
-    const ebitda: number | null = n(fd.ebitda)
-    const evEbit = enterpriseValue && ebitda && ebitda > 0 ? enterpriseValue / ebitda : null
+    // FCF fallback: apply FCF margin to historical revenues when statement data unavailable
+    if (!freeCashFlow3Y && fcfLatest && revenue3Y) {
+      const latestRevenue = n(fd.totalRevenue) ?? n(ish[0]?.totalRevenue)
+      if (latestRevenue && latestRevenue > 0) {
+        const fcfMargin = fcfLatest / latestRevenue
+        freeCashFlow3Y = revenue3Y.map(rev => rev * fcfMargin)
+      }
+    }
 
-    // Use latest FCF from financialData when cashflow history unavailable
+    // Interest expense — most recent year for interest coverage ratio
+    const interestExpense = n(ish[0]?.interestExpense)
+
+    // ── Single-period metrics ────────────────────────────────────────────────
+    const marketCap       = n(q.marketCap)
+    const enterpriseValue = n(dks.enterpriseValue)
+    const ebitda          = ebitdaSnap
+    const evEbit          = enterpriseValue && ebitda && ebitda > 0 ? enterpriseValue / ebitda : null
+
     const fcf = freeCashFlow3Y ? freeCashFlow3Y[freeCashFlow3Y.length - 1] : fcfLatest
-    const fcfYield = fcf && marketCap && marketCap > 0 ? (fcf / marketCap) * 100 : null
-    const pFcf = fcf && marketCap && fcf > 0 ? marketCap / fcf : null
+    const fcfYield  = fcf && marketCap && marketCap > 0 ? (fcf / marketCap) * 100 : null
+    const pFcf      = fcf && marketCap && fcf > 0 ? marketCap / fcf : null
 
-    const gm = n(fd.grossMargins)
-    const om = n(fd.operatingMargins)
+    const gm  = n(fd.grossMargins)
+    const om  = n(fd.operatingMargins)
     const roe = n(fd.returnOnEquity)
 
+    // ── Balance sheet — derived from available modules ───────────────────────
+    // Yahoo Finance's balanceSheetHistory is restricted; derive from what's available.
+
+    // Equity: bookValue/share × sharesOutstanding (bookValue from dks or quote)
+    const bookValue       = n(dks.bookValue) ?? n(q.bookValue)
+    const sharesOut       = n(dks.sharesOutstanding) ?? n(q.sharesOutstanding)
+    const equity          = bookValue && sharesOut && bookValue > 0 ? bookValue * sharesOut : null
+
+    // Debt split: Yahoo sometimes gives longTermDebt in financialData or from quote
+    const longTermDebt    = n(fd.longTermDebt) ?? n(q.longTermDebt) ?? null
+    const totalDebtVal    = n(fd.totalDebt)
+    // Short-term = totalDebt - longTermDebt (approximation)
+    const shortTermDebt   = totalDebtVal && longTermDebt
+      ? Math.max(0, totalDebtVal - longTermDebt) : null
+
+    // PP&E and working capital items — not available without balance sheet module
+    const ppe             = null
+    const receivables     = null
+    const inventory       = null
+    const accountsPayable = null
+
+    // ── Earnings history ─────────────────────────────────────────────────────
     const mappedEarnings = eh.length > 0
       ? eh.map((e: any) => ({
           period: String(e.period ?? ''),
@@ -150,16 +233,24 @@ export async function getFinancials(ticker: string): Promise<FinancialData | nul
       pFcf,
       fcfYield,
       revenue3Y,
+      ebitda3Y: ebitda3Y?.some(v => v !== 0) ? ebitda3Y : null,
       netIncome3Y,
       freeCashFlow3Y,
       totalDebt: n(fd.totalDebt),
       totalCash: n(fd.totalCash),
       ebitda,
-      interestExpense: n(ish[0]?.interestExpense),
+      interestExpense,
       sharesOutstanding: n(dks.sharesOutstanding) ?? n(q.sharesOutstanding),
       grossMargin: gm != null ? gm * 100 : null,
       operatingMargin: om != null ? om * 100 : null,
       roic: roe != null ? roe * 100 : null,
+      equity,
+      shortTermDebt,
+      longTermDebt,
+      ppe,
+      receivables,
+      inventory,
+      accountsPayable,
       earningsHistory: mappedEarnings,
       priceHistory3M: null,
     }

@@ -38,6 +38,32 @@ function KpiCard({ label, value, sub }: { label: string; value: string; sub?: st
   )
 }
 
+interface Threshold { max: number; color: string; label: string }
+
+function RatioCard({ label, formula, value, format, thresholds }: {
+  label: string; formula: string; value: number
+  format: (v: number) => string; thresholds: Threshold[]
+}) {
+  const t = thresholds.find(th => value <= th.max) ?? thresholds[thresholds.length - 1]
+  const pct = Math.min(100, (value / (thresholds[thresholds.length - 2]?.max ?? 5)) * 100)
+
+  return (
+    <div className="bg-[#0a0e1a] border border-[#2d3748] rounded-xl p-4">
+      <p className="text-xs text-[#6b7280] mb-0.5">{label}</p>
+      <p className="text-[10px] text-[#4b5563] mb-3">{formula}</p>
+      <div className="flex items-end justify-between mb-2">
+        <span className="text-2xl font-bold font-mono" style={{ color: t.color }}>{format(value)}</span>
+        <span className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{ color: t.color, background: `${t.color}18` }}>
+          {t.label}
+        </span>
+      </div>
+      <div className="h-1.5 bg-[#1e2332] rounded-full overflow-hidden">
+        <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, pct)}%`, background: t.color }} />
+      </div>
+    </div>
+  )
+}
+
 export default function CompanyPage() {
   const { ticker } = useParams<{ ticker: string }>()
   const [data, setData]     = useState<any>(null)
@@ -69,11 +95,36 @@ export default function CompanyPage() {
   // Chart data
   const years = ['FY-2', 'FY-1', 'FY']
   const revenueData  = data.revenue3Y?.map((v: number, i: number) => ({ year: years[i], value: v / 1e9 })) ?? []
+  const ebitdaData   = data.ebitda3Y?.map((v: number, i: number) => ({ year: years[i], value: v / 1e9 })) ?? []
   const incomeData   = data.netIncome3Y?.map((v: number, i: number) => ({ year: years[i], value: v / 1e9 })) ?? []
   const fcfData      = data.freeCashFlow3Y?.map((v: number, i: number) => ({ year: years[i], value: v / 1e9 })) ?? []
   const earningsData = data.earningsHistory?.map((e: any) => ({
     period: e.period, estimate: e.epsEstimate, actual: e.epsActual
   })) ?? []
+
+  // Derived balance sheet metrics
+  const netDebt  = data.totalDebt != null && data.totalCash != null
+    ? data.totalDebt - data.totalCash : null
+  const bfr      = data.receivables != null || data.inventory != null || data.accountsPayable != null
+    ? ((data.receivables ?? 0) + (data.inventory ?? 0) - (data.accountsPayable ?? 0)) : null
+  const gearing  = netDebt != null && data.equity != null && data.equity > 0
+    ? netDebt / data.equity : null
+  const leverage = netDebt != null && data.ebitda != null && data.ebitda > 0
+    ? netDebt / data.ebitda : null
+  const dscr = data.shortTermDebt != null && data.ebitda != null && data.ebitda > 0
+    ? data.shortTermDebt / data.ebitda : null
+
+  // Currency label (USD for US stocks, local for European)
+  const curr = data.exchange?.includes('Paris') || data.exchange?.includes('Frankfurt')
+    || data.exchange?.includes('Amsterdam') ? '€' : '$'
+  function fmtBs(v: number | null) {
+    if (v == null) return '—'
+    const abs = Math.abs(v)
+    const sign = v < 0 ? '-' : ''
+    if (abs >= 1e12) return `${sign}${curr}${(abs/1e12).toFixed(2)}T`
+    if (abs >= 1e9)  return `${sign}${curr}${(abs/1e9).toFixed(2)}B`
+    return `${sign}${curr}${(abs/1e6).toFixed(0)}M`
+  }
 
   const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: 'overview',   label: 'Overview',   icon: <TrendingUp className="w-4 h-4" /> },
@@ -236,57 +287,161 @@ export default function CompanyPage() {
           {/* ── Financials ── */}
           {tab === 'financials' && (
             <div className="space-y-8">
-              {revenueData.length > 0 && (
+
+              {/* ── Compte de résultat ── */}
+              <div>
+                <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-blue-400 inline-block" />
+                  Compte de résultat — 3 exercices
+                </h3>
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                  {/* Chiffre d'affaires */}
+                  {revenueData.length > 0 && (
+                    <div className="bg-[#0a0e1a] border border-[#2d3748] rounded-xl p-4">
+                      <p className="text-xs text-[#6b7280] mb-3">Chiffre d'affaires</p>
+                      <ResponsiveContainer width="100%" height={140}>
+                        <BarChart data={revenueData} barSize={32}>
+                          <CartesianGrid strokeDasharray="3 3" stroke={GRID_COLOR} vertical={false} />
+                          <XAxis dataKey="year" tick={CHART_STYLE} axisLine={false} tickLine={false} />
+                          <YAxis tick={CHART_STYLE} tickFormatter={v => `${v.toFixed(0)}B`} width={36} />
+                          <Tooltip contentStyle={{ background: '#141824', border: '1px solid #2d3748', borderRadius: 8 }}
+                            formatter={(v: any) => [`${Number(v).toFixed(1)}B`]} cursor={{ fill: '#1e2332' }} />
+                          <Bar dataKey="value" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
+                  {/* EBITDA */}
+                  {ebitdaData.length > 0 && (
+                    <div className="bg-[#0a0e1a] border border-[#2d3748] rounded-xl p-4">
+                      <p className="text-xs text-[#6b7280] mb-3">EBITDA <span className="text-[#4b5563]">(EBIT + D&A)</span></p>
+                      <ResponsiveContainer width="100%" height={140}>
+                        <BarChart data={ebitdaData} barSize={32}>
+                          <CartesianGrid strokeDasharray="3 3" stroke={GRID_COLOR} vertical={false} />
+                          <XAxis dataKey="year" tick={CHART_STYLE} axisLine={false} tickLine={false} />
+                          <YAxis tick={CHART_STYLE} tickFormatter={v => `${v.toFixed(0)}B`} width={36} />
+                          <Tooltip contentStyle={{ background: '#141824', border: '1px solid #2d3748', borderRadius: 8 }}
+                            formatter={(v: any) => [`${Number(v).toFixed(1)}B`]} cursor={{ fill: '#1e2332' }} />
+                          <Bar dataKey="value" fill="#10b981" radius={[4, 4, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
+                  {/* FCF */}
+                  {fcfData.length > 0 && fcfData.some((d: any) => d.value !== 0) && (
+                    <div className="bg-[#0a0e1a] border border-[#2d3748] rounded-xl p-4">
+                      <p className="text-xs text-[#6b7280] mb-3">Free Cash Flow</p>
+                      <ResponsiveContainer width="100%" height={140}>
+                        <BarChart data={fcfData} barSize={32}>
+                          <CartesianGrid strokeDasharray="3 3" stroke={GRID_COLOR} vertical={false} />
+                          <XAxis dataKey="year" tick={CHART_STYLE} axisLine={false} tickLine={false} />
+                          <YAxis tick={CHART_STYLE} tickFormatter={v => `${v.toFixed(0)}B`} width={36} />
+                          <ReferenceLine y={0} stroke="#4b5563" />
+                          <Tooltip contentStyle={{ background: '#141824', border: '1px solid #2d3748', borderRadius: 8 }}
+                            formatter={(v: any) => [`${Number(v).toFixed(1)}B`]} cursor={{ fill: '#1e2332' }} />
+                          <Bar dataKey="value" fill="#f59e0b" radius={[4, 4, 0, 0]}
+                            label={false}
+                            // negative bars in red
+                          />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* ── Bilan (balance sheet) ── */}
+              {(data.equity != null || netDebt != null || data.totalDebt != null) && (
                 <div>
-                  <h3 className="text-sm font-semibold text-white mb-4">Revenue ($B)</h3>
-                  <ResponsiveContainer width="100%" height={220}>
-                    <LineChart data={revenueData}>
-                      <CartesianGrid strokeDasharray="3 3" stroke={GRID_COLOR} />
-                      <XAxis dataKey="year" tick={CHART_STYLE} />
-                      <YAxis tick={CHART_STYLE} tickFormatter={v => `$${v.toFixed(0)}B`} />
-                      <Tooltip contentStyle={{ background: '#141824', border: '1px solid #2d3748', borderRadius: 8 }}
-                        formatter={(v: any) => [`$${Number(v).toFixed(1)}B`]} />
-                      <Line type="monotone" dataKey="value" stroke={LINE_THEME[0]} strokeWidth={2} dot={{ r: 4, fill: LINE_THEME[0] }} />
-                    </LineChart>
-                  </ResponsiveContainer>
+                  <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-purple-400 inline-block" />
+                    Données bilancielles — dernier exercice
+                  </h3>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    {[
+                      { label: 'Capitaux propres', value: data.equity,   color: '#10b981', hint: 'Equity (book value × shares)' },
+                      { label: 'Dette totale',      value: data.totalDebt, color: '#ef4444', hint: 'Short-term + Long-term debt' },
+                      { label: 'Dette LT (estim.)', value: data.longTermDebt, color: '#f97316', hint: 'Long-term portion (approx.)' },
+                      { label: 'Trésorerie',        value: data.totalCash, color: '#34d399', hint: 'Cash & equivalents' },
+                      { label: 'Dette nette',       value: netDebt,       color: netDebt != null ? (netDebt <= 0 ? '#10b981' : '#ef4444') : '#6b7280', hint: 'Total Debt − Cash' },
+                      { label: 'EBITDA',            value: data.ebitda,   color: '#a78bfa', hint: 'Trailing twelve months' },
+                      ...(bfr != null ? [{ label: 'BFR', value: bfr, color: bfr > 0 ? '#f59e0b' : '#10b981', hint: 'Créances + Stocks − Fournisseurs' }] : []),
+                      ...(data.ppe != null ? [{ label: 'Immo. corp.', value: data.ppe, color: '#60a5fa', hint: 'PP&E net' }] : []),
+                    ].map(({ label, value, color, hint }) => (
+                      <div key={label} className="bg-[#0a0e1a] border border-[#2d3748] rounded-xl p-3">
+                        <p className="text-[10px] text-[#6b7280] uppercase tracking-wider mb-1">{label}</p>
+                        <p className="text-sm font-bold font-mono" style={{ color: value != null ? color : '#6b7280' }}>
+                          {fmtBs(value as number | null)}
+                        </p>
+                        <p className="text-[10px] text-[#4b5563] mt-0.5">{hint}</p>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
 
-              {incomeData.length > 0 && (
+              {/* ── Ratios d'endettement ── */}
+              {(gearing != null || leverage != null || dscr != null) && (
                 <div>
-                  <h3 className="text-sm font-semibold text-white mb-4">Net Income ($B)</h3>
-                  <ResponsiveContainer width="100%" height={220}>
-                    <LineChart data={incomeData}>
-                      <CartesianGrid strokeDasharray="3 3" stroke={GRID_COLOR} />
-                      <XAxis dataKey="year" tick={CHART_STYLE} />
-                      <YAxis tick={CHART_STYLE} tickFormatter={v => `$${v.toFixed(0)}B`} />
-                      <Tooltip contentStyle={{ background: '#141824', border: '1px solid #2d3748', borderRadius: 8 }}
-                        formatter={(v: any) => [`$${Number(v).toFixed(1)}B`]} />
-                      <Line type="monotone" dataKey="value" stroke={LINE_THEME[1]} strokeWidth={2} dot={{ r: 4, fill: LINE_THEME[1] }} />
-                    </LineChart>
-                  </ResponsiveContainer>
+                  <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-orange-400 inline-block" />
+                    Ratios d'endettement
+                  </h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    {/* Gearing */}
+                    {gearing != null && (
+                      <RatioCard
+                        label="Gearing"
+                        formula="Dette nette / Capitaux propres"
+                        value={gearing}
+                        format={v => `${v.toFixed(2)}x`}
+                        thresholds={[
+                          { max: 0.5,   color: '#10b981', label: 'Sain' },
+                          { max: 1,     color: '#f59e0b', label: 'Modéré' },
+                          { max: 2,     color: '#f97316', label: 'Élevé' },
+                          { max: Infinity, color: '#ef4444', label: 'Très élevé' },
+                        ]}
+                      />
+                    )}
+                    {/* Leverage */}
+                    {leverage != null && (
+                      <RatioCard
+                        label="Levier (Net Debt / EBITDA)"
+                        formula="Dette nette / EBITDA"
+                        value={leverage}
+                        format={v => `${v.toFixed(2)}x`}
+                        thresholds={[
+                          { max: 1.5, color: '#10b981', label: 'Sain' },
+                          { max: 3,   color: '#f59e0b', label: 'Acceptable' },
+                          { max: 5,   color: '#f97316', label: 'Élevé' },
+                          { max: Infinity, color: '#ef4444', label: 'Critique' },
+                        ]}
+                      />
+                    )}
+                    {/* DSCR */}
+                    {dscr != null && (
+                      <RatioCard
+                        label="DSCR court terme"
+                        formula="Dette CT / EBITDA"
+                        value={dscr}
+                        format={v => `${v.toFixed(2)}x`}
+                        thresholds={[
+                          { max: 0.3,  color: '#10b981', label: 'Très sain' },
+                          { max: 0.75, color: '#f59e0b', label: 'Gérable' },
+                          { max: 1.5,  color: '#f97316', label: 'Tendu' },
+                          { max: Infinity, color: '#ef4444', label: 'Risqué' },
+                        ]}
+                      />
+                    )}
+                  </div>
+                  <p className="text-xs text-[#4b5563] mt-3">
+                    DSCR ici = Dette à moins d'un an / EBITDA (couverture court terme). Levier = Dette nette / EBITDA. Gearing = Dette nette / Capitaux propres.
+                  </p>
                 </div>
               )}
 
-              {fcfData.length > 0 && fcfData.some((d: any) => d.value !== 0) && (
-                <div>
-                  <h3 className="text-sm font-semibold text-white mb-4">Free Cash Flow ($B)</h3>
-                  <ResponsiveContainer width="100%" height={220}>
-                    <BarChart data={fcfData}>
-                      <CartesianGrid strokeDasharray="3 3" stroke={GRID_COLOR} />
-                      <XAxis dataKey="year" tick={CHART_STYLE} />
-                      <YAxis tick={CHART_STYLE} tickFormatter={v => `$${v.toFixed(0)}B`} />
-                      <ReferenceLine y={0} stroke="#4b5563" />
-                      <Tooltip contentStyle={{ background: '#141824', border: '1px solid #2d3748', borderRadius: 8 }}
-                        formatter={(v: any) => [`$${Number(v).toFixed(1)}B`]} />
-                      <Bar dataKey="value" name="FCF" fill={LINE_THEME[2]} radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              )}
-
-              {revenueData.length === 0 && incomeData.length === 0 && (
-                <p className="text-center text-[#9ca3af] py-8">Historical financial data not available for this ticker.</p>
+              {revenueData.length === 0 && ebitdaData.length === 0 && (
+                <p className="text-center text-[#9ca3af] py-8">Données historiques non disponibles pour ce ticker.</p>
               )}
             </div>
           )}
