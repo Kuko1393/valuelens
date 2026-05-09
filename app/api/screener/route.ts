@@ -34,7 +34,7 @@ async function buildRow(ticker: string): Promise<ScreenerRow | null> {
   )
   const mos   = computeMarginOfSafety(iv, data.price)
   const score = calculateScore(data, iv)
-  const cat   = classifyCompany(score, mos)
+  const cat   = classifyCompany(score, mos, data.roic) // roic fixes ADBE/WKL classification
 
   const debtToEbitda =
     data.totalDebt && data.ebitda && data.ebitda > 0

@@ -5,7 +5,6 @@ import Link from 'next/link'
 import { Search, SlidersHorizontal, X, ChevronUp, ChevronDown, ChevronsUpDown, Loader2, RefreshCw } from 'lucide-react'
 import ScoreGauge from '@/components/ScoreGauge'
 import CategoryBadge from '@/components/CategoryBadge'
-import TrendIndicator from '@/components/TrendIndicator'
 import { SECTORS } from '@/config/tickers'
 import type { ScreenerRow } from '@/app/api/screener/route'
 
@@ -197,7 +196,7 @@ export default function ScreenerPage() {
             <p className="text-xs text-[#6b7280] mt-0.5">
               {loading
                 ? 'Loading…'
-                : `${meta.total} results · ${meta.cached}/${meta.universe} cached · sorted by ${SORT_LABELS[sortKey] ?? sortKey} (${sortDir})`}
+                : `${meta.total} results · ${meta.cached}/${meta.universe} in cache · ↕ ${SORT_LABELS[sortKey] ?? sortKey} ${sortDir}`}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -236,17 +235,15 @@ export default function ScreenerPage() {
                   <Th k="name"           label="Company"      cls="min-w-[140px]" />
                   <Th k="sector"         label="Sector"       cls="hidden xl:table-cell" />
                   <Th k="price"          label="Price" />
-                  <Th k="marketCap"      label="Mkt Cap" />
                   <Th k="score"          label="Score" />
                   <Th k="category"       label="Category"     cls="hidden lg:table-cell" />
-                  <Th k="pe"             label="P/E" />
                   <Th k="marginOfSafety" label="MoS %" />
-                  <Th k="grossMargin"    label="GM %" />
                   <Th k="roic"           label="ROIC %" />
-                  <Th k="revGrowth3Y"    label="Rev ↗ 3Y" />
                   <Th k="fcfYield"       label="FCF Yld" />
+                  <Th k="pe"             label="P/E" />
+                  <Th k="revGrowth3Y"    label="Rev ↗ 3Y"    cls="hidden lg:table-cell" />
                   <Th k="debtToEbitda"   label="Debt/EBITDA"  cls="hidden xl:table-cell" />
-                  <th className="px-3 py-3 text-xs font-medium text-[#9ca3af] uppercase">Trend</th>
+                  <Th k="marketCap"      label="Mkt Cap"      cls="hidden xl:table-cell" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#1e2332]">
@@ -268,27 +265,23 @@ export default function ScreenerPage() {
                     <td className="px-3 py-2.5 text-white max-w-[160px] truncate text-sm">{co.name}</td>
                     <td className="px-3 py-2.5 text-[#9ca3af] text-xs hidden xl:table-cell max-w-[120px] truncate">{co.sector ?? '—'}</td>
                     <td className="px-3 py-2.5 font-mono text-white text-sm">${co.price.toFixed(2)}</td>
-                    <td className="px-3 py-2.5 font-mono text-[#9ca3af] text-xs">{fmtCap(co.marketCap)}</td>
                     <td className="px-3 py-2.5"><ScoreGauge score={co.score} size="sm" showLabel={false} /></td>
                     <td className="px-3 py-2.5 hidden lg:table-cell"><CategoryBadge category={co.category} compact /></td>
-                    <td className="px-3 py-2.5 font-mono text-[#9ca3af] text-xs">{fmtN(co.pe, 1, 'x')}</td>
                     <td className="px-3 py-2.5 font-mono text-xs font-medium" style={{ color: mosColor(co.marginOfSafety) }}>
-                      {co.marginOfSafety != null ? `${co.marginOfSafety.toFixed(1)}%` : <span className="text-[#6b7280]">—</span>}
+                      {co.marginOfSafety != null ? `${co.marginOfSafety > 0 ? '+' : ''}${co.marginOfSafety.toFixed(1)}%` : <span className="text-[#6b7280]">—</span>}
                     </td>
-                    <td className="px-3 py-2.5 font-mono text-[#9ca3af] text-xs">{fmtN(co.grossMargin, 1, '%')}</td>
-                    <td className="px-3 py-2.5 font-mono text-xs" style={{ color: co.roic != null ? (co.roic > 15 ? '#10b981' : '#9ca3af') : '#6b7280' }}>
+                    <td className="px-3 py-2.5 font-mono text-xs" style={{ color: co.roic != null ? (co.roic > 20 ? '#10b981' : co.roic > 10 ? '#f59e0b' : '#9ca3af') : '#6b7280' }}>
                       {fmtN(co.roic, 1, '%')}
                     </td>
-                    <td className="px-3 py-2.5 font-mono text-xs" style={{ color: growColor(co.revGrowth3Y) }}>
-                      {co.revGrowth3Y != null
-                        ? `${co.revGrowth3Y > 0 ? '+' : ''}${co.revGrowth3Y.toFixed(1)}%`
-                        : <span className="text-[#6b7280]">—</span>}
-                    </td>
                     <td className="px-3 py-2.5 font-mono text-[#9ca3af] text-xs">{fmtN(co.fcfYield, 1, '%')}</td>
+                    <td className="px-3 py-2.5 font-mono text-[#9ca3af] text-xs">{fmtN(co.pe, 1, 'x')}</td>
+                    <td className="px-3 py-2.5 font-mono text-xs hidden lg:table-cell" style={{ color: growColor(co.revGrowth3Y) }}>
+                      {co.revGrowth3Y != null ? `${co.revGrowth3Y > 0 ? '+' : ''}${co.revGrowth3Y.toFixed(1)}%` : <span className="text-[#6b7280]">—</span>}
+                    </td>
                     <td className="px-3 py-2.5 font-mono text-xs hidden xl:table-cell" style={{ color: debtColor(co.debtToEbitda) }}>
                       {fmtN(co.debtToEbitda, 2, 'x')}
                     </td>
-                    <td className="px-3 py-2.5"><TrendIndicator trend={co.trend3M} /></td>
+                    <td className="px-3 py-2.5 font-mono text-[#9ca3af] text-xs hidden xl:table-cell">{fmtCap(co.marketCap)}</td>
                   </tr>
                 ))}
               </tbody>

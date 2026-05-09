@@ -37,30 +37,31 @@ export async function GET(req: NextRequest) {
       const data = await getFinancials(t)
       if (!data) { failed.push(t); continue }
 
-      // Update company cache
-      await setCache(`company:${t}`, data, TTL.METRICS)
-
-      // Rebuild and update screener cache
       const iv = estimateIntrinsicValue(
         data.freeCashFlow3Y?.[0] && data.sharesOutstanding
           ? data.freeCashFlow3Y[0] / data.sharesOutstanding : null,
         data.pe
       )
-      const mos   = computeMarginOfSafety(iv, data.price)
-      const score = calculateScore(data, iv)
-      const cat   = classifyCompany(score, mos)
+      const mos      = computeMarginOfSafety(iv, data.price)
+      const score    = calculateScore(data, iv)
+      const category = classifyCompany(score, mos, data.roic)
 
+      // Company cache: full result (with score + category) — same as company route
+      // This fixes the "blank score" bug when refresh overwrote company cache with raw data
+      const companyResult = { ...data, intrinsicValue: iv, marginOfSafety: mos, score, category }
+      await setCache(`company:${t}`, companyResult, TTL.METRICS)
+
+      // Screener cache: flat row for fast screener reads
       const row: ScreenerRow = {
         ticker: data.ticker, name: data.name,
         sector: data.sector, exchange: data.exchange,
         price: data.price, marketCap: data.marketCap,
-        score: score.total, category: cat,
+        score: score.total, category,
         pe: data.pe, marginOfSafety: mos, trend3M: null,
         grossMargin: data.grossMargin, fcfYield: data.fcfYield,
         roic: data.roic, revGrowth3Y: computeCagr(data.revenue3Y),
         debtToEbitda: data.totalDebt && data.ebitda && data.ebitda > 0
-          ? (data.totalDebt - (data.totalCash ?? 0)) / data.ebitda
-          : null,
+          ? (data.totalDebt - (data.totalCash ?? 0)) / data.ebitda : null,
       }
       await setCache(`screener:${t}`, row, TTL.METRICS)
 

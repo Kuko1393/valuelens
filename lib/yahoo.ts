@@ -17,6 +17,8 @@ export interface FinancialData {
   ticker: string; name: string; price: number; marketCap: number | null
   sector: string | null; exchange: string | null; pe: number | null; peg: number | null
   evEbit: number | null; pFcf: number | null; fcfYield: number | null
+  divYield: number | null       // annual dividend yield %
+  guidanceScore: number | null  // 1-5 from EPS beat rate
 
   // P&L history (3 fiscal years, oldest → newest)
   revenue3Y: number[] | null
@@ -90,11 +92,11 @@ export async function getFinancials(ticker: string): Promise<FinancialData | nul
     const session = await getSession()
     if (!session) { console.error('[yahoo] could not obtain session/crumb'); return null }
 
-    // Added balanceSheetHistory for bilan data
+    // assetProfile: sector/industry (was missing, causing sector:null everywhere)
     const modules = [
       'summaryDetail', 'defaultKeyStatistics', 'financialData',
       'incomeStatementHistory', 'cashflowStatementHistory',
-      'balanceSheetHistory', 'earningsHistory',
+      'balanceSheetHistory', 'earningsHistory', 'assetProfile',
     ].join(',')
 
     const [quoteData, summaryData] = await Promise.all([
@@ -109,9 +111,17 @@ export async function getFinancials(ticker: string): Promise<FinancialData | nul
     const fd       = summary.financialData ?? {}
     const dks      = summary.defaultKeyStatistics ?? {}
     const sd       = summary.summaryDetail ?? {}
+    const ap       = summary.assetProfile ?? {}
     const ish: any[] = summary.incomeStatementHistory?.incomeStatementHistory ?? []
     const cfh: any[] = summary.cashflowStatementHistory?.cashflowStatements ?? []
     const eh:  any[] = summary.earningsHistory?.history ?? []
+
+    // ── GBX / GBp currency fix ──────────────────────────────────────────────
+    // Yahoo Finance returns UK stocks (ULVR.L, SHEL.L…) in pence, not pounds.
+    // Yahoo uses 'GBp' (pence) or 'GBX' — both must be detected and divided by 100.
+    const rawPrice = q.regularMarketPrice
+    const isPence  = q.currency === 'GBX' || q.currency === 'GBp'
+    const price    = isPence ? rawPrice / 100 : rawPrice
 
     // Yahoo Finance's balanceSheetHistory no longer returns full data in their free API.
     // We derive balance sheet metrics from financialData and defaultKeyStatistics instead.
@@ -210,8 +220,23 @@ export async function getFinancials(ticker: string): Promise<FinancialData | nul
     const inventory       = null
     const accountsPayable = null
 
-    // ── Earnings history ─────────────────────────────────────────────────────
-    const mappedEarnings = eh.length > 0
+    // earningsHistory mapped earlier (used for guidanceScore above)
+
+    // PEG validation: negative PEG (from negative growth) or suspiciously identical
+    // values across very different companies are meaningless → null
+    const rawPeg = n(dks.pegRatio) ?? n(q.trailingPegRatio)
+    const peg    = rawPeg != null && rawPeg > 0 && rawPeg < 50 ? rawPeg : null
+
+    // Dividend yield from summaryDetail (percentage form)
+    const rawDivYield = n(sd.trailingAnnualDividendYield) ?? n(q.trailingAnnualDividendYield)
+    const divYield    = rawDivYield != null ? rawDivYield * 100 : null
+
+    // Sector: from assetProfile (was missing — q.sector works only for US stocks)
+    const sector = ap.sector ?? q.sector ?? null
+
+    // Guidance score from EPS beat rate
+    const { calculateGuidanceScore } = await import('./scoring')
+    const mappedEarnings2 = eh.length > 0
       ? eh.map((e: any) => ({
           period: String(e.period ?? ''),
           epsEstimate: n(e.epsEstimate),
@@ -219,16 +244,19 @@ export async function getFinancials(ticker: string): Promise<FinancialData | nul
           surprisePercent: n(e.surprisePercent) != null ? (n(e.surprisePercent)! * 100) : null,
         }))
       : null
+    const guidanceScore = calculateGuidanceScore(mappedEarnings2)
 
     return {
       ticker,
       name: q.longName ?? q.shortName ?? ticker,
-      price: q.regularMarketPrice,
+      price,
       marketCap,
-      sector: q.sector ?? null,
+      sector,
       exchange: q.fullExchangeName ?? q.exchange ?? null,
       pe: n(sd.trailingPE) ?? n(q.trailingPE),
-      peg: n(dks.pegRatio) ?? n(q.trailingPegRatio),
+      peg,
+      divYield,
+      guidanceScore,
       evEbit,
       pFcf,
       fcfYield,
@@ -251,7 +279,7 @@ export async function getFinancials(ticker: string): Promise<FinancialData | nul
       receivables,
       inventory,
       accountsPayable,
-      earningsHistory: mappedEarnings,
+      earningsHistory: mappedEarnings2,
       priceHistory3M: null,
     }
   } catch (error) {
