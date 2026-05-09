@@ -46,7 +46,9 @@ export interface FinancialData {
   accountsPayable: number | null  // dettes fournisseurs
 
   earningsHistory: { period: string; epsEstimate: number | null; epsActual: number | null; surprisePercent: number | null }[] | null
-  priceHistory3M: { date: string; close: number }[] | null
+  priceHistory1Y: { date: string; close: number }[] | null
+  high52w: number | null
+  low52w: number | null
 }
 
 interface Session { cookies: string; crumb: string }
@@ -99,9 +101,10 @@ export async function getFinancials(ticker: string): Promise<FinancialData | nul
       'balanceSheetHistory', 'earningsHistory', 'assetProfile',
     ].join(',')
 
-    const [quoteData, summaryData] = await Promise.all([
+    const [quoteData, summaryData, chartData] = await Promise.all([
       yfFetch(`/v7/finance/quote?symbols=${ticker}`, session),
       yfFetch(`/v10/finance/quoteSummary/${ticker}?modules=${modules}&formatted=false`, session),
+      yfFetch(`/v8/finance/chart/${ticker}?range=1y&interval=1d`, session),
     ])
 
     const q = quoteData?.quoteResponse?.result?.[0]
@@ -280,7 +283,25 @@ export async function getFinancials(ticker: string): Promise<FinancialData | nul
       inventory,
       accountsPayable,
       earningsHistory: mappedEarnings2,
-      priceHistory3M: null,
+      priceHistory1Y: (() => {
+        try {
+          const result = chartData?.chart?.result?.[0]
+          const timestamps: number[] = result?.timestamp ?? []
+          const closes: number[]    = result?.indicators?.quote?.[0]?.close ?? []
+          const isPenceChart = q.currency === 'GBX' || q.currency === 'GBp'
+          const pts = timestamps
+            .map((ts: number, i: number) => {
+              const c = closes[i]
+              if (c == null) return null
+              const close = isPenceChart ? c / 100 : c
+              return { date: new Date(ts * 1000).toISOString().slice(0, 10), close }
+            })
+            .filter(Boolean) as { date: string; close: number }[]
+          return pts.length > 0 ? pts : null
+        } catch { return null }
+      })(),
+      high52w: n(q.fiftyTwoWeekHigh) ? (isPence ? n(q.fiftyTwoWeekHigh)! / 100 : n(q.fiftyTwoWeekHigh)) : null,
+      low52w:  n(q.fiftyTwoWeekLow)  ? (isPence ? n(q.fiftyTwoWeekLow)!  / 100 : n(q.fiftyTwoWeekLow))  : null,
     }
   } catch (error) {
     const msg = error instanceof Error ? `${error.name}: ${error.message}` : String(error)

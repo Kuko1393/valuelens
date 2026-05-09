@@ -5,8 +5,9 @@ import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Loader2, RefreshCw, TrendingUp, DollarSign, BarChart2, Target, Star } from 'lucide-react'
 import {
-  LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, ReferenceLine
+  AreaChart, Area, LineChart, Line, BarChart, Bar,
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  ReferenceLine, ReferenceDot
 } from 'recharts'
 import ScoreGauge from '@/components/ScoreGauge'
 import CategoryBadge from '@/components/CategoryBadge'
@@ -34,6 +35,131 @@ function KpiCard({ label, value, sub }: { label: string; value: string; sub?: st
       <p className="text-xs text-[#6b7280] mb-1">{label}</p>
       <p className="text-lg font-bold font-mono text-white">{value}</p>
       {sub && <p className="text-xs text-[#9ca3af] mt-0.5">{sub}</p>}
+    </div>
+  )
+}
+
+// ── Price Chart 1Y ────────────────────────────────────────────────────────────
+function PriceChart({ data, currentPrice, high52w, low52w, intrinsicValue }: {
+  data: { date: string; close: number }[]
+  currentPrice: number
+  high52w: number | null
+  low52w: number | null
+  intrinsicValue: number | null
+}) {
+  const prices   = data.map(d => d.close)
+  const minPrice = Math.min(...prices)
+  const maxPrice = Math.max(...prices)
+  const start    = prices[0]
+  const end      = currentPrice
+  const pctChange = ((end - start) / start) * 100
+  const isUp      = pctChange >= 0
+  const lineColor = isUp ? '#10b981' : '#ef4444'
+  const gradientId = 'priceGrad'
+
+  // Thin out data for performance: ~1 point every 2 days on mobile, keep all on desktop
+  const thinned = data.filter((_, i) => i % 2 === 0 || i === data.length - 1)
+
+  // X-axis: show month labels without too much density
+  const labelSet = new Set<string>()
+  const xTicks = thinned
+    .filter(d => {
+      const month = d.date.slice(0, 7)
+      if (labelSet.has(month)) return false
+      labelSet.add(month); return true
+    })
+    .map(d => d.date)
+
+  const fmtDate  = (d: string) => {
+    const [, m] = d.split('-')
+    return ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][+m]
+  }
+  const fmtPrice = (v: number) => v >= 1000 ? `${(v/1000).toFixed(1)}k` : v.toFixed(0)
+
+  // Y-axis domain with 5% padding
+  const pad    = (maxPrice - minPrice) * 0.05
+  const yMin   = minPrice - pad
+  const yMax   = maxPrice + pad
+
+  return (
+    <div className="bg-[#141824] border border-[#2d3748] rounded-xl p-5">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <p className="text-xs text-[#6b7280] uppercase tracking-wider mb-0.5">Prix — 52 semaines</p>
+          <div className="flex items-baseline gap-3">
+            <span className="text-2xl font-bold font-mono text-white">
+              {currentPrice >= 1000 ? currentPrice.toFixed(0) : currentPrice.toFixed(2)}
+            </span>
+            <span className={`text-sm font-semibold font-mono ${isUp ? 'text-emerald-400' : 'text-red-400'}`}>
+              {isUp ? '+' : ''}{pctChange.toFixed(1)}% sur 1 an
+            </span>
+          </div>
+        </div>
+        <div className="text-right hidden sm:block">
+          {high52w && <div className="text-xs text-[#6b7280]">52W High <span className="text-white font-mono">{fmtPrice(high52w)}</span></div>}
+          {low52w  && <div className="text-xs text-[#6b7280] mt-0.5">52W Low <span className="text-white font-mono">{fmtPrice(low52w)}</span></div>}
+          {high52w && low52w && (
+            <div className="mt-1 text-xs text-[#6b7280]">
+              Distance du high: <span className={currentPrice / high52w > 0.9 ? 'text-emerald-400' : 'text-[#f59e0b]'} style={{ fontFamily: 'monospace' }}>
+                {(((currentPrice - high52w) / high52w) * 100).toFixed(1)}%
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Chart */}
+      <ResponsiveContainer width="100%" height={220}>
+        <AreaChart data={thinned} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+          <defs>
+            <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%"   stopColor={lineColor} stopOpacity={0.15} />
+              <stop offset="95%"  stopColor={lineColor} stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid strokeDasharray="3 3" stroke="#1e2332" vertical={false} />
+          <XAxis
+            dataKey="date"
+            ticks={xTicks}
+            tickFormatter={fmtDate}
+            tick={{ fontSize: 10, fill: '#6b7280' }}
+            axisLine={false} tickLine={false}
+          />
+          <YAxis
+            domain={[yMin, yMax]}
+            tickFormatter={fmtPrice}
+            tick={{ fontSize: 10, fill: '#6b7280' }}
+            axisLine={false} tickLine={false}
+            width={36}
+          />
+          <Tooltip
+            contentStyle={{ background: '#0f1420', border: '1px solid #2d3748', borderRadius: 8, padding: '8px 12px' }}
+            labelStyle={{ color: '#9ca3af', fontSize: 11 }}
+            itemStyle={{ color: '#e5e7eb', fontSize: 12 }}
+            formatter={(v: any) => [Number(v).toFixed(2), 'Price']}
+            labelFormatter={(d: string) => new Date(d).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: '2-digit' })}
+          />
+          {/* Intrinsic value reference line */}
+          {intrinsicValue && intrinsicValue > yMin && intrinsicValue < yMax && (
+            <ReferenceLine
+              y={intrinsicValue}
+              stroke="#a78bfa"
+              strokeDasharray="5 3"
+              label={{ value: `IV ${fmtPrice(intrinsicValue)}`, position: 'insideTopRight', fill: '#a78bfa', fontSize: 10 }}
+            />
+          )}
+          <Area
+            type="monotone"
+            dataKey="close"
+            stroke={lineColor}
+            strokeWidth={1.5}
+            fill={`url(#${gradientId})`}
+            dot={false}
+            activeDot={{ r: 4, fill: lineColor, stroke: '#0f1420', strokeWidth: 2 }}
+          />
+        </AreaChart>
+      </ResponsiveContainer>
     </div>
   )
 }
@@ -175,6 +301,17 @@ export default function CompanyPage() {
           </div>
         </div>
       </div>
+
+      {/* ── Price chart 1Y ── */}
+      {data.priceHistory1Y && data.priceHistory1Y.length > 0 && (
+        <PriceChart
+          data={data.priceHistory1Y}
+          currentPrice={data.price}
+          high52w={data.high52w}
+          low52w={data.low52w}
+          intrinsicValue={data.intrinsicValue ?? null}
+        />
+      )}
 
       {/* KPIs */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
