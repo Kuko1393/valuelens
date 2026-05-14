@@ -1,4 +1,9 @@
 {
   "framework": "nextjs",
-  "crons": [{ "path": "/api/refresh", "schedule": "0 6 * * *" }]
+  "crons": [
+    { "path": "/api/refresh?offset=0",   "schedule": "0 6 * * *" },
+    { "path": "/api/refresh?offset=50",  "schedule": "0 8 * * *" },
+    { "path": "/api/refresh?offset=100", "schedule": "0 10 * * *" },
+    { "path": "/api/refresh?offset=150", "schedule": "0 12 * * *" }
+  ]
 }

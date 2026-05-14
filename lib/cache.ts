@@ -5,10 +5,10 @@ const useKV = !!(
 const memCache = new Map<string, { value: unknown; expiry: number }>()
 
 export const TTL = {
-  PRICE: 15 * 60,
-  METRICS: 12 * 60 * 60,
-  FINANCIALS: 7 * 24 * 60 * 60,
-  GUIDANCE: 30 * 24 * 60 * 60,
+  PRICE:     15 * 60,           //  15 min — prix temps réel
+  METRICS:   72 * 60 * 60,      //  72h — données financières (était 12h, trop court)
+  FINANCIALS: 7 * 24 * 60 * 60, //   7j
+  GUIDANCE:  30 * 24 * 60 * 60, //  30j
 }
 
 export async function getCache<T>(key: string): Promise<T | null> {

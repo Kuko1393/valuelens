@@ -116,7 +116,7 @@ export async function GET(req: NextRequest) {
   })
 
   // ── 2. Live-fetch a small batch of uncached tickers ────────────────────────
-  const LIVE_BATCH = q ? 5 : 8
+  const LIVE_BATCH = q ? 5 : 15
   const toLive = q
     ? uncached.filter(t => t.toUpperCase().startsWith(q)).slice(0, LIVE_BATCH)
     : uncached.slice(0, LIVE_BATCH)
