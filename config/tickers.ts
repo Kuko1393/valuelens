@@ -69,34 +69,94 @@ export const TICKER_UNIVERSE: string[] = [
   'VIV.PA',   // Vivendi
   'WLN.PA',   // Worldline (paiements)
 
-  // ── France – Valeurs moyennes & small caps vérifiées ──────────────────────
-  'ABCA.PA',  // ABC arbitrage (stratégies alternatives cotées)
+  // ── France – Valeurs moyennes & small caps (marchés réglementés) ──────────
+  'ABCA.PA',  // ABC arbitrage
   'ALCOF.PA', // Cofidur (EMS electronique)
   'ALESA.PA', // Ecoslops (recyclage pétrole)
   'ALHIT.PA', // HITECHPROS (ESN/conseil IT)
   'ALIMR.PA', // Immersion SA
   'ALMII.PA', // M2i Formation
-  'ALVDM.PA', // Voyageurs du Monde (agence premium)
-  'ATO.PA',   // Atos SE (IT, restructuration)
+  'ALVDM.PA', // Voyageurs du Monde
+  'ATO.PA',   // Atos SE
   'AURE.PA',  // Aurea (recyclage industriel)
-  'BOI.PA',   // Boiron (homéopathie, cash-rich)
-  'CBR.PA',   // Robertet (arômes & parfums, niche premium)
+  'BOI.PA',   // Boiron
+  'CBR.PA',   // Robertet (arômes & parfums)
   'FII.PA',   // LISI Group (fixations aéronautiques)
   'FNAC.PA',  // Fnac Darty
   'FREY.PA',  // Frey (REIT retail parks)
   'GBB.PA',   // Guerbet (imagerie médicale)
-  'GEA.PA',   // Grenobloise d'Electronique (defense electronique)
+  'GEA.PA',   // Grenobloise d'Electronique
   'HCO.PA',   // High Co. (marketing data)
   'IDIP.PA',  // IDI (capital-investissement coté)
-  'LNA.PA',   // LNA Santé (EHPAD/cliniques)
-  'LSS.PA',   // Lectra (solutions digitales mode/auto/mobilier)
+  'LNA.PA',   // LNA Santé
+  'LSS.PA',   // Lectra
   'MLCMG.PA', // CMG Cleantech
   'NXI.PA',   // Nexity (promotion immobilière)
-  'POXEL.PA', // Poxel (pharma diabète & NASH)
-  'PVL.PA',   // Plastiques du Val de Loire (emballage)
-  'SESG.PA',  // SES S.A. (opérateur satellite, coté Paris)
+  'POXEL.PA', // Poxel (pharma)
+  'PVL.PA',   // Plastiques du Val de Loire
+  'SESG.PA',  // SES S.A. (satellite)
   'SMCP.PA',  // SMCP (Sandro, Maje, Claudie Pierlot)
   'VETO.PA',  // Vétoquinol (santé animale)
+
+  // ── France – Euronext Growth (vérifiés Yahoo Finance) ─────────────────────
+  // Industrie & services
+  'ALDLS.PA', // DLSI (Delfingen Industry, câbles auto)
+  'ALREA.PA', // Réalités (promotion immobilière)
+  'ALMOU.PA', // Moulinvest (sciage bois)
+  'ALBON.PA', // Compagnie Lebon (holding)
+  'ALCAT.PA', // CATANA GROUP (yachts de luxe)
+  'ALMER.PA', // Sapmer (pêche thonière)
+  'ALMAR.PA', // Mare Nostrum (RH/interim)
+  'ALFOR.PA', // FORSEE POWER (batteries industrielles)
+  'ALFRE.PA', // Freelance.com (portage salarial)
+  'ALROC.PA', // RocTool (composites haute performance)
+  'ALBOU.PA', // Bourrelier Group (bricolage)
+  'ALORD.PA', // Ordissimo (tablettes seniors)
+  'ALODC.PA', // Omer-Decugis (import fruits exotiques)
+  'ALAGO.PA', // E-Pango
+  'ALARF.PA', // Adeunis (IoT industriel)
+  'ALAVI.PA', // AdVini (vins & spiritueux)
+  'ALINN.PA', // Innelec Multimédia (distribution high-tech)
+  'ALLEX.PA', // Lexibook (jouets électroniques)
+  // Technologie & software
+  'ALWIT.PA', // Witbe (monitoring vidéo réseau)
+  'ALBLD.PA', // Bilendi (data & études marché)
+  'ALPRG.PA', // Prologue (logiciels santé)
+  'ALVIA.PA', // Vialife
+  'ALVIN.PA', // Vinpai (peintures industrielles)
+  'ALINS.PA', // Intrasense (imagerie médicale IA)
+  'ALIMO.PA', // Groupimo (immobilier tech)
+  'ALJXR.PA', // Archos (électronique grand public)
+  'ALKLA.PA', // Klarsen
+  // Biotech & santé
+  'ALGEN.PA', // genOway (modèles animaux OGM R&D)
+  'ALTHE.PA', // Theraclion (ultrasons thérapeutiques)
+  'ALSGD.PA', // SpineGuard (guidage chirurgical)
+  'ALSEN.PA', // Sensorion (surdité, biotech)
+  'ALBIO.PA', // Biosynex (tests rapides)
+  'ALINT.PA', // IntegraGen (génomique)
+  'ALMDT.PA', // Median Technologies (IA oncologie)
+  'ALCBI.PA', // Crypto Blockchain Industries
+  'ALENT.PA', // Ethero
+  'ALAQU.PA', // Aquila
+  // Non-AL Euronext Growth / SMEs
+  'ADOC.PA',  // Adocia (insulines)
+  'GUI.PA',   // Guillemot (gaming peripherals)
+  'LACR.PA',  // LACROIX Group (électronique défense)
+  'S30.PA',   // Solutions 30 (services terrain)
+  'SDG.PA',   // Synergie (intérim/RH)
+  'GLO.PA',   // GL Events (événementiel)
+  'THEP.PA',  // Thermador Groupe (distribution thermique)
+  'PIG.PA',   // Haulotte Group (nacelles élévatrices)
+  'ITP.PA',   // Interparfums (parfums licences)
+  'NRG.PA',   // NRJ Group (radio/TV)
+  'BEN.PA',   // Bénéteau (bateaux)
+  'MBWS.PA',  // Marie Brizard Wine & Spirits
+  'CBOT.PA',  // CBo Territoria (foncière La Réunion)
+  'METEX.PA', // METabolic EXplorer (biotech fermentation)
+  'OSE.PA',   // OSE Immunotherapeutics
+  'TNG.PA',   // Transgene (vaccins thérapeutiques)
+  'DBV.PA',   // DBV Technologies (allergies alimentaires)
 
   // ── Allemagne – DAX 40 ─────────────────────────────────────────────────────
   'SAP.DE','SIE.DE','ALV.DE','MUV2.DE','DTE.DE',
