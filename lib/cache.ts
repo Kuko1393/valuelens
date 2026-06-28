@@ -1,8 +1,22 @@
 import { kv } from '@vercel/kv'
-export const TTL = { PRICE: 900, METRICS: 43200, FINANCIALS: 604800, GUIDANCE: 2592000 }
+
 export async function getCache<T>(key: string): Promise<T | null> {
-  try { return await kv.get<T>(key) } catch { return null }
+  try {
+    return await kv.get<T>(key)
+  } catch {
+    return null
+  }
 }
-export async function setCache(key: string, value: unknown, ttl: number): Promise<void> {
-  try { await kv.set(key, value, { ex: ttl }) } catch (e) { console.error('KV error:', e) }
+
+export async function setCache<T>(key: string, value: T, ttlSeconds: number): Promise<void> {
+  try {
+    await kv.set(key, value, { ex: ttlSeconds })
+  } catch {}
+}
+
+export const TTL = {
+  PRICE: 15 * 60,
+  METRICS: 12 * 60 * 60,
+  FINANCIALS: 7 * 24 * 60 * 60,
+  GUIDANCE: 30 * 24 * 60 * 60,
 }
