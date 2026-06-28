@@ -1,4 +1,5 @@
 import type { FinancialData } from './yahoo'
+import { SCORING_CONFIG } from '@/config/scoring.config'
 
 export interface Score {
   total: number
@@ -15,67 +16,111 @@ export type Category =
   | 'Potential Value Trap'
   | null
 
-export function calculateScore(data: FinancialData, iv: number | null): Score {
-  let bq = 0, fs = 0, val = 0, ltv = 0
+export interface ScoringInput {
+  data: FinancialData
+  iv: number | null
+  guidanceScore: number | null
+  grossMargins3Y?: number[] | null
+  sharesOutstanding3Y?: number[] | null
+}
 
-  // Business Quality /30
-  if (data.roic != null && data.roic > 15) bq += 10
-  else if (data.roic != null && data.roic > 10) bq += 5
+export function calculateScore(input: ScoringInput): Score {
+  const { data, iv, guidanceScore, grossMargins3Y, sharesOutstanding3Y } = input
+  const cfg = SCORING_CONFIG
+
+  // ── Business Quality /30 ──
+  let bq = 0
+
+  if (data.roic != null && data.roic > cfg.businessQuality.roicThreshold) bq += 10
+  else if (data.roic != null && data.roic > cfg.businessQuality.roicThreshold * 0.67) bq += 5
 
   const cagr = computeCAGR(data.revenue3Y)
-  if (cagr != null && cagr > 5) bq += 10
-  else if (cagr != null && cagr > 2) bq += 5
+  if (cagr != null && cagr > cfg.businessQuality.revenueCAGRThreshold) bq += 10
+  else if (cagr != null && cagr > cfg.businessQuality.revenueCAGRThreshold * 0.4) bq += 5
 
-  if (data.grossMargin != null && data.grossMargin > 40) bq += 5
-  else if (data.grossMargin != null && data.grossMargin > 25) bq += 3
+  if (grossMargins3Y && grossMargins3Y.length >= 2) {
+    const variance = Math.max(...grossMargins3Y) - Math.min(...grossMargins3Y)
+    if (variance < cfg.businessQuality.grossMarginVarianceMax) bq += 5
+    else if (variance < cfg.businessQuality.grossMarginVarianceMax * 2) bq += 3
+  } else if (data.grossMargin != null && data.grossMargin > 40) {
+    bq += 5
+  } else if (data.grossMargin != null && data.grossMargin > 25) {
+    bq += 3
+  }
 
-  if (data.operatingMargin != null && data.operatingMargin > 20) bq += 5
-  else if (data.operatingMargin != null && data.operatingMargin > 10) bq += 3
+  if (guidanceScore != null && guidanceScore >= cfg.businessQuality.guidanceScoreMin) bq += 5
+  else if (guidanceScore != null && guidanceScore >= 3) bq += 3
 
-  bq = Math.max(0, Math.min(30, bq))
+  bq = Math.max(0, Math.min(cfg.businessQuality.maxPoints, bq))
 
-  // Financial Strength /25
+  // ── Financial Strength /25 ──
+  let fs = 0
+
   const nd = computeND(data)
-  if (nd != null && nd < 0) fs += 10 // net cash
-  else if (nd != null && nd < 1) fs += 10
-  else if (nd != null && nd < 2) fs += 6
-  else if (nd != null && nd < 3) fs += 3
+  if (nd != null && nd < 0) fs += 10
+  else if (nd != null && nd < cfg.financialStrength.netDebtEbitdaMax * 0.5) fs += 10
+  else if (nd != null && nd < cfg.financialStrength.netDebtEbitdaMax) fs += 6
+  else if (nd != null && nd < cfg.financialStrength.netDebtEbitdaMax * 1.5) fs += 3
 
   if (data.interestCoverage != null) {
-    if (data.interestCoverage >= 999) fs += 10 // no debt
-    else if (data.interestCoverage > 10) fs += 10
-    else if (data.interestCoverage > 5) fs += 6
+    if (data.interestCoverage >= 999) fs += 10
+    else if (data.interestCoverage > cfg.financialStrength.interestCoverageMin * 2) fs += 10
+    else if (data.interestCoverage > cfg.financialStrength.interestCoverageMin) fs += 6
     else if (data.interestCoverage > 2) fs += 3
   }
 
-  if (data.currentRatio != null && data.currentRatio > 1.5) fs += 5
-  else if (data.currentRatio != null && data.currentRatio > 1) fs += 3
+  if (sharesOutstanding3Y && sharesOutstanding3Y.length >= 2) {
+    const oldest = sharesOutstanding3Y[sharesOutstanding3Y.length - 1]
+    const latest = sharesOutstanding3Y[0]
+    if (oldest > 0) {
+      const annualDilution = ((latest / oldest) ** (1 / (sharesOutstanding3Y.length - 1)) - 1) * 100
+      if (annualDilution <= 0) fs += 5
+      else if (annualDilution < cfg.financialStrength.dilutionAnnualMax) fs += 3
+    }
+  } else if (data.currentRatio != null && data.currentRatio > 1.5) {
+    fs += 5
+  } else if (data.currentRatio != null && data.currentRatio > 1) {
+    fs += 3
+  }
 
-  fs = Math.max(0, Math.min(25, fs))
+  fs = Math.max(0, Math.min(cfg.financialStrength.maxPoints, fs))
 
-  // Valuation /30
+  // ── Valuation /30 ──
+  let val = 0
+
   const mos = iv != null && data.price != null && data.price > 0
     ? ((iv - data.price) / iv) * 100 : null
-  if (mos != null && mos > 30) val += 10
-  else if (mos != null && mos > 20) val += 6
-  else if (mos != null && mos > 10) val += 3
+
+  if (mos != null && mos > cfg.valuation.mosSuperior) val += 10
+  else if (mos != null && mos > cfg.valuation.mosGood) val += 5
 
   if (data.fcfYield != null && data.fcfYield > 8) val += 10
   else if (data.fcfYield != null && data.fcfYield > 5) val += 6
   else if (data.fcfYield != null && data.fcfYield > 3) val += 3
 
-  if (data.pe != null && data.pe > 0 && data.pe < 15) val += 10
-  else if (data.pe != null && data.pe > 0 && data.pe < 20) val += 6
-  else if (data.pe != null && data.pe > 0 && data.pe < 25) val += 3
+  const sectorMedian = data.sector
+    ? cfg.valuation.evEbitSectorMedians[data.sector] ?? 16
+    : 16
+  if (data.evEbit != null && data.evEbit > 0 && data.evEbit < sectorMedian) val += 10
+  else if (data.evEbit != null && data.evEbit > 0 && data.evEbit < sectorMedian * 1.3) val += 5
 
-  val = Math.max(0, Math.min(30, val))
+  val = Math.max(0, Math.min(cfg.valuation.maxPoints, val))
 
-  // Long Term Visibility /15
+  // ── Long Term Visibility /15 ──
+  let ltv = 0
+
+  const isNonCyclical = data.sector != null &&
+    cfg.longTermVisibility.nonCyclicalSectors.includes(data.sector)
+  if (isNonCyclical) ltv += 5
+  else if (data.roic != null && data.roic > 15 && cagr != null && cagr > 3) ltv += 3
+
+  if (data.roic != null && data.roic > cfg.longTermVisibility.moatRoicThreshold) ltv += 5
+  else if (data.roic != null && data.roic > 15) ltv += 3
+
   if (data.revenue3Y && data.revenue3Y.length >= 2 && data.revenue3Y.every(r => r > 0)) ltv += 5
-  if (data.roic != null && data.roic > 15) ltv += 5
-  if (cagr != null && cagr > 5) ltv += 5
+  else if (cagr != null && cagr > 0) ltv += 2
 
-  ltv = Math.max(0, Math.min(15, ltv))
+  ltv = Math.max(0, Math.min(cfg.longTermVisibility.maxPoints, ltv))
 
   const total = Math.max(0, Math.min(100, bq + fs + val + ltv))
 
@@ -92,24 +137,12 @@ export function classifyCompany(
   const m = mos ?? -999
   const g = cagr3y ?? 0
 
-  // ABSOLUTE RULE: ROIC > 18% can NEVER be "Potential Value Trap"
-  // Quality Value
   if (r > 15 && m > 20 && score.total > 60) return 'Quality Value'
-
-  // Reasonably Valued Compounder
   if (r > 15 && m > -10 && m <= 20 && g > 5) return 'Reasonably Valued Compounder'
   if (r > 20 && m > -15) return 'Reasonably Valued Compounder'
-
-  // Deep Value
   if (m > 30 && score.total < 60 && r < 12) return 'Deep Value'
-
-  // Potential Value Trap — only if ROIC < 18%
   if (r < 18 && m > 20 && r < 8 && g < 0) return 'Potential Value Trap'
-
-  // High quality but expensive
   if (r > 18) return 'Reasonably Valued Compounder'
-
-  // Fallback
   if (m > 15) return 'Deep Value'
   if (score.businessQuality >= 20) return 'Reasonably Valued Compounder'
 
@@ -132,28 +165,21 @@ export function calculateGuidanceScore(
   }> | null
 ): number | null {
   if (!history || history.length === 0) return null
-
   const valid = history.filter(e => e.epsActual != null && e.epsEstimate != null)
   if (valid.length < 4) return null
 
   const beats = valid.filter(e => e.epsActual! > e.epsEstimate!).length
   const beatRate = beats / valid.length
 
-  const beatMagnitudes = valid
-    .filter(e => e.surprisePercent != null)
-    .map(e => e.surprisePercent!)
-  const avgMagnitude = beatMagnitudes.length > 0
-    ? beatMagnitudes.reduce((a, b) => a + b, 0) / beatMagnitudes.length
-    : 0
+  const mags = valid.filter(e => e.surprisePercent != null).map(e => e.surprisePercent!)
+  const avgMag = mags.length > 0 ? mags.reduce((a, b) => a + b, 0) / mags.length : 0
+  const magNorm = avgMag > 5 ? 1.0 : avgMag > 2 ? 0.7 : avgMag > 0 ? 0.4 : 0
 
-  const magnitudeNorm = avgMagnitude > 5 ? 1.0 : avgMagnitude > 2 ? 0.7 : avgMagnitude > 0 ? 0.4 : 0
-
-  const scoreRaw = beatRate * 0.7 + magnitudeNorm * 0.3
-
-  if (scoreRaw >= 0.83) return 5
-  if (scoreRaw >= 0.67) return 4
-  if (scoreRaw >= 0.50) return 3
-  if (scoreRaw >= 0.33) return 2
+  const raw = beatRate * 0.7 + magNorm * 0.3
+  if (raw >= 0.83) return 5
+  if (raw >= 0.67) return 4
+  if (raw >= 0.50) return 3
+  if (raw >= 0.33) return 2
   return 1
 }
 

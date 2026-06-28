@@ -25,9 +25,9 @@ export async function GET(_req: NextRequest, { params }: { params: { ticker: str
   const cagr = data.revenue3Y && data.revenue3Y.length >= 2
     ? ((data.revenue3Y[0] / data.revenue3Y[data.revenue3Y.length - 1]) ** (1 / (data.revenue3Y.length - 1)) - 1) * 100
     : null
-  const score = calculateScore(data, iv)
-  const category = classifyCompany(score, mos, data.roic, cagr)
   const guidanceScore = calculateGuidanceScore(data.earningsHistory)
+  const score = calculateScore({ data, iv, guidanceScore })
+  const category = classifyCompany(score, mos, data.roic, cagr)
   const dcfScenarios = estimateDCFScenarios(fcfPerShare, data.price)
 
   const result = {
