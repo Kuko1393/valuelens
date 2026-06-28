@@ -2,25 +2,27 @@ generator client {
   provider = "prisma-client-js"
 }
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
+
 model Company {
-  id           String           @id @default(cuid())
-  ticker       String           @unique
+  id           String            @id @default(cuid())
+  ticker       String            @unique
   name         String
   sector       String?
   exchange     String?
   marketCap    Float?
+  currentPrice Float?
   score        Float?
   category     String?
-  updatedAt    DateTime         @updatedAt
+  updatedAt    DateTime          @updatedAt
   metrics      Metric?
   valuation    Valuation?
   guidances    GuidanceHistory[]
   guidanceMeta GuidanceMeta?
 }
+
 model Metric {
   id               String  @id @default(cuid())
   companyId        String  @unique
@@ -31,8 +33,74 @@ model Metric {
   fcfYield         Float?
   guidanceScore    Float?
   marginOfSafety   Float?
+  // ── Advanced metrics ──────────────────────────────
+  insiderOwnership      Float?
+  fcfConversionRatio    Float?
+  buybackQualityScore   Int?
+  roiic                 Float?
+  reinvestmentRate      Float?
+  intrinsicCompoundingRate Float?
+  accrualsRatio         Float?
+  piotroskiFScore       Int?
+  grossMarginStability  Float?
+  capexIntensity        Float?
+  moatQuantScore        Int?
+  founderBadge          Boolean?
+  ceoTenureYears        Int?
+  distanceFromATH       Float?
+  performance6M         Float?
+  rsiMonthly            Float?
+  revenueGrowthYoY      Float?
+  // ── Piotroski F-Score individuel ─────────────────
+  pioF1RoaPositive            Boolean?
+  pioF2CfoPositive            Boolean?
+  pioF3RoaImproving           Boolean?
+  pioF4CfoVsNetIncome         Boolean?
+  pioF5LeverageDecreasing     Boolean?
+  pioF6LiquidityImproving     Boolean?
+  pioF7NoDilution             Boolean?
+  pioF8GrossMarginImproving   Boolean?
+  pioF9AssetTurnoverImproving Boolean?
+  // ── Nouveau scoring (sous-scores) ────────────────
+  scoreCompounding      Float?
+  scoreFinancial        Float?
+  scoreEarnings         Float?
+  scoreValuation        Float?
+  // ── Métriques valuation avancées ─────────────────
+  marginOfSafetyBear    Float?
+  ownerEarningsYield    Float?
+  ownerEarnings         Float?
+  incrementalMargin     Float?
+  // ── Moat Analysis ────────────────────────────────
+  moatPricingPower      Float?
+  moatSwitchingCosts    Float?
+  moatCostAdvantage     Float?
+  moatNetworkEffects    Float?
+  moatIntangibleAssets  Float?
+  moatGlobalScore       Int?
+  moatPricingEvidence   String?
+  moatSwitchingEvidence String?
+  moatCostEvidence      String?
+  moatNetworkEvidence   String?
+  moatIntangibleEvidence String?
+  // ── Score Breakdown ───────────────────────────────
+  scoreBreakdownJson    String?
+  // ── Dette & Trésorerie ────────────────────────────
+  cashAndEquivalents    Float?
+  totalDebtValue        Float?
+  netDebt               Float?
+  netDebtToFCF          Float?
+  currentRatio          Float?
+  quickRatio            Float?
+  goodwillToAssets      Float?
+  returnOnTangibleAssets Float?
+  equityRatio           Float?
+  dso                   Float?
+  dpo                   Float?
+  cashConversionCycle   Float?
   company          Company @relation(fields: [companyId], references: [id])
 }
+
 model Valuation {
   id             String  @id @default(cuid())
   companyId      String  @unique
@@ -43,6 +111,7 @@ model Valuation {
   intrinsicValue Float?
   company        Company @relation(fields: [companyId], references: [id])
 }
+
 model GuidanceHistory {
   id            String   @id @default(cuid())
   ticker        String
@@ -59,6 +128,7 @@ model GuidanceHistory {
   @@unique([ticker, year, metric])
   @@index([ticker])
 }
+
 model GuidanceMeta {
   ticker         String   @id
   lastReportDate DateTime
@@ -66,6 +136,7 @@ model GuidanceMeta {
   dataQuality    String
   company        Company  @relation(fields: [ticker], references: [ticker])
 }
+
 model Watchlist {
   id        String   @id @default(cuid())
   name      String

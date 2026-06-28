@@ -89,7 +89,8 @@ function WatchCard({ ticker, onRemove }: { ticker:string; onRemove:()=>void }) {
   const [data, setData] = useState<any>(null)
   useEffect(()=>{ fetch(`/api/company/${ticker}`).then(r=>r.json()).then(setData).catch(()=>{}) },[ticker])
   return (
-    <div className="card card-hover" style={{padding:14,position:'relative'}}>
+    <div className="card card-hover" onClick={()=>{ window.location.href='/?ticker='+ticker }}
+      style={{padding:14,position:'relative',cursor:'pointer'}}>
       <button onClick={e=>{e.stopPropagation();onRemove()}} style={{position:'absolute',top:8,right:8,background:'none',border:'none',color:'var(--muted)',cursor:'pointer',fontSize:14}}>×</button>
       {!data ? <div className="skeleton" style={{height:60}}/> : (
         <>
