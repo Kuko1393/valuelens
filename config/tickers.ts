@@ -71,9 +71,32 @@ const rawTickers = [
   'AZN.L','ULVR.L','SHEL.L','GSK.L','DGE.L','RIO.L','BP.L',
   'HSBA.L','BATS.L','BHP.L','CPG.L',
 
+  // US — Additional S&P 500
+  'ABNB','ACN','ANET','ANSS','APH','ARE','AWK','AZO','BA','BK',
+  'BKNG','BR','CDNS','CE','CF','CI','CL','CPRT','CRL','CTSH',
+  'DXCM','EA','ENPH','EPAM','FANG','FICO','FI','FTNT','GEHC','GEN',
+  'GNRC','GPC','GRMN','HES','HPQ','HUM','ILMN','INCY','IQV','IT',
+  'JKHY','KDP','KEYS','KMB','LHX','LMT','LULU','LYB','MANH','MKTX',
+  'MNST','MOH','MPWR','MRNA','MSI','NDAQ','NOC','NOW','NXPI','ON',
+  'ORLY','OTIS','PAYC','PCAR','PGR','PHM','PNR','PODD','PWR','PXD',
+  'PYPL','QRVO','RCL','REGN','RMD','RVTY','SBAC','SNPS','STZ','SWK',
+  'SYF','SYY','TECH','TDG','TDY','TEL','TFX','TMUS','TRGP','TSCO',
+  'TT','TTWO','TYL','UBER','ULTA','URI','VEEV','VLO','VRSK','VRSN',
+  'WAB','WAT','WBD','WLTW','WRB','WSO','WY','XYL','YUM','ZBH',
+
+  // France — Additional
+  'FGR.PA','SW.PA','MMB.PA','RCO.PA','STAL.PA','UBI.PA','NK.PA',
+  'MERY.PA','MDM.PA','FDR.PA','ALSE.PA','ARTO.PA',
+
+  // UK — Additional FTSE
+  'REL.L','NG.L','LSEG.L','BA.L','AAF.L','ABF.L','AUTO.L','BNZL.L',
+  'CRH.L','EXPN.L','III.L','IMB.L','INF.L','MNDI.L','PRU.L','SGRO.L',
+  'SMT.L','SSE.L','SVT.L','WPP.L',
+
   // Canada
   'SHOP.TO','RY.TO','TD.TO','ENB.TO','CNQ.TO','CP.TO','CNR.TO',
-  'ATD.TO','TRI.TO','MFC.TO',
+  'ATD.TO','TRI.TO','MFC.TO','BN.TO','CSU.TO','WFG.TO','DOL.TO',
+  'QSR.TO','IFC.TO','GIB-A.TO',
 ]
 
 export const TICKER_UNIVERSE = Array.from(new Set(rawTickers))
