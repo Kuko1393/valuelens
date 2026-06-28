@@ -16,7 +16,7 @@ async function withRetry<T>(fn: () => Promise<T>, label = '', retries = 2): Prom
     try {
       return await fn()
     } catch (e: any) {
-      console.error(`[yahoo] ${label} attempt ${i+1}/${retries+1} failed:`, e?.message?.slice(0, 200))
+      console.error(`[yahoo] ${label} attempt ${i+1}/${retries+1}:`, e?.message?.slice(0, 200))
       if (i === retries) return null
       await new Promise(r => setTimeout(r, i === 0 ? 1000 : 3000))
     }
@@ -70,9 +70,9 @@ export interface FinancialData {
   priceHistory3M: { date: string; close: number }[] | null
 }
 
-function n(v: any): number | null {
-  if (v == null) return null
-  const raw = v?.raw ?? v
+function v(x: any): number | null {
+  if (x == null) return null
+  const raw = x?.raw ?? x
   return typeof raw === 'number' && isFinite(raw) ? raw : null
 }
 
@@ -84,189 +84,176 @@ export async function getFinancials(ticker: string): Promise<FinancialData | nul
   try {
     const yf = await getYF()
 
-    const [quote, summary] = await Promise.all([
+    const fiveYearsAgo = new Date()
+    fiveYearsAgo.setFullYear(fiveYearsAgo.getFullYear() - 5)
+
+    const [quote, summaryRaw, ftsRaw] = await Promise.all([
       withRetry(() => yf.quote(ticker, {}, { validateResult: false }), `quote:${ticker}`),
       withRetry(() => yf.quoteSummary(ticker, {
-        modules: [
-          'summaryDetail',
-          'defaultKeyStatistics',
-          'financialData',
-          'incomeStatementHistory',
-          'cashflowStatementHistory',
-          'balanceSheetHistory',
-          'assetProfile',
-          'earningsHistory',
-        ],
+        modules: ['summaryDetail', 'defaultKeyStatistics', 'financialData', 'assetProfile', 'earningsHistory'],
       }, { validateResult: false }), `summary:${ticker}`),
+      withRetry(() => yf.fundamentalsTimeSeries(ticker, {
+        period1: fiveYearsAgo,
+        type: 'annual',
+        module: 'all',
+      }, { validateResult: false }), `fts:${ticker}`),
     ])
 
-    if (!quote && !summary) return null
+    if (!quote) return null
 
     const q = quote as any
-    const s = summary as any
+    const s = summaryRaw as any
     const sd = s?.summaryDetail ?? {}
     const ks = s?.defaultKeyStatistics ?? {}
     const fd = s?.financialData ?? {}
     const ap = s?.assetProfile ?? {}
 
-    const rawPrice = n(q?.regularMarketPrice) ?? n(fd?.currentPrice)
+    // FTS data — sorted most recent first, skip periods with no revenue
+    const fts: any[] = ((ftsRaw as any[]) ?? [])
+      .filter((p: any) => p.totalRevenue != null)
+      .sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())
+
+    const f0 = fts[0] ?? {} // most recent year
+    const f1 = fts[1] ?? {} // prior year
+    const f2 = fts[2] ?? {} // 2 years ago
+
+    const rawPrice = v(q?.regularMarketPrice) ?? v(fd?.currentPrice)
     const price = rawPrice != null ? normalizePrice(rawPrice, ticker) : null
 
-    const rawHigh52w = n(q?.fiftyTwoWeekHigh)
+    const rawHigh52w = v(q?.fiftyTwoWeekHigh)
     const high52w = rawHigh52w != null ? normalizePrice(rawHigh52w, ticker) : null
     const distanceFromATH = price != null && high52w != null && high52w > 0
-      ? ((price - high52w) / high52w) * 100
-      : null
-
-    // Income statement (annual)
-    const ish: any[] = s?.incomeStatementHistory?.incomeStatementHistory ?? []
-    // Cashflow statement (annual)
-    const cfs: any[] = s?.cashflowStatementHistory?.cashflowStatements ?? []
-    // Balance sheet (annual, most recent first)
-    const bsh: any[] = s?.balanceSheetHistory?.balanceSheetStatements ?? []
-    const bs = bsh[0] ?? {}
-    const bsPrev = bsh[1] ?? {}
+      ? ((price - high52w) / high52w) * 100 : null
 
     // Revenue 3Y (most recent first)
-    const revenue3Y = ish.length >= 2
-      ? ish.slice(0, 3).map((s: any) => n(s?.totalRevenue)).filter((v): v is number => v != null)
+    const revenue3Y = fts.length >= 2
+      ? fts.slice(0, 3).map((p: any) => v(p.totalRevenue)).filter((x): x is number => x != null)
       : null
 
     // Net income 3Y
-    const netIncome3Y = ish.length >= 2
-      ? ish.slice(0, 3).map((s: any) => n(s?.netIncome)).filter((v): v is number => v != null)
+    const netIncome3Y = fts.length >= 2
+      ? fts.slice(0, 3).map((p: any) => v(p.netIncome) ?? v(p.dilutedNIAvailtoComStockholders)).filter((x): x is number => x != null)
       : null
 
-    // FCF 3Y (most recent first)
-    const freeCashFlow3Y = cfs.length >= 2
-      ? cfs.slice(0, 3).map((s: any) => {
-          const opCF = n(s?.totalCashFromOperatingActivities)
-          const capex = n(s?.capitalExpenditures)
-          if (opCF == null) return null
-          return opCF + (capex ?? 0)
-        }).filter((v): v is number => v != null)
+    // FCF 3Y
+    const freeCashFlow3Y = fts.length >= 2
+      ? fts.slice(0, 3).map((p: any) => v(p.freeCashFlow)).filter((x): x is number => x != null)
       : null
 
-    // Revenue growth YoY (annual only)
-    const revenueGrowthYoY = (() => {
-      if (!ish || ish.length < 2) return null
-      const recent = n(ish[0]?.totalRevenue)
-      const prior = n(ish[1]?.totalRevenue)
-      if (!recent || !prior || prior === 0) return null
-      const g = ((recent - prior) / Math.abs(prior)) * 100
-      if (g < -80 || g > 500) return null
-      return g
-    })()
+    // Revenue growth YoY
+    const rev0 = v(f0.totalRevenue)
+    const rev1 = v(f1.totalRevenue)
+    const revenueGrowthYoY = rev0 != null && rev1 != null && rev1 !== 0
+      ? ((rev0 - rev1) / Math.abs(rev1)) * 100
+      : null
+
+    // Key financials from FTS
+    const ebit = v(f0.EBIT) ?? v(f0.operatingIncome)
+    const ebitda = v(f0.EBITDA) ?? v(fd?.ebitda)
+    const totalDebt = v(f0.totalDebt) ?? v(fd?.totalDebt)
+    const totalCash = v(f0.cashAndCashEquivalents) ?? v(fd?.totalCash)
+    const totalEquity = v(f0.commonStockEquity) ?? v(f0.stockholdersEquity)
+    const interestExpenseVal = v(f0.interestExpense)
+    const costOfRevenue = v(f0.costOfRevenue)
+    const sharesOutstanding = v(f0.ordinarySharesNumber) ?? v(ks?.sharesOutstanding) ?? v(q?.sharesOutstanding)
 
     // ROIC
-    const ebit = n(ish[0]?.ebit) ?? n(ish[0]?.operatingIncome)
-    const totalDebt = n(fd?.totalDebt) ?? n(bs?.longTermDebt)
-    const totalCash = n(fd?.totalCash) ?? n(bs?.cash)
-    const totalEquity = n(bs?.totalStockholderEquity)
-    const investedCapital = (totalEquity ?? 0) + (totalDebt ?? 0) - (totalCash ?? 0)
-    const roic = ebit != null && investedCapital > 0
-      ? (ebit / investedCapital) * 100
-      : null
+    const investedCapital = v(f0.investedCapital) ?? ((totalEquity ?? 0) + (totalDebt ?? 0) - (totalCash ?? 0))
+    const roic = ebit != null && investedCapital > 0 ? (ebit / investedCapital) * 100 : null
     const sanitizedRoic = roic != null ? (roic < -200 || roic > 1000 ? null : roic) : null
 
     // Balance sheet metrics
-    const currentAssets = n(bs?.totalCurrentAssets)
-    const currentLiabilities = n(bs?.totalCurrentLiabilities)
+    const currentAssets = v(f0.currentAssets)
+    const currentLiabilities = v(f0.currentLiabilities)
     const currentRatio = currentAssets != null && currentLiabilities != null && currentLiabilities > 0
       ? currentAssets / currentLiabilities : null
-    const inventory = n(bs?.inventory)
+    const inventory = v(f0.inventory)
     const quickRatio = currentAssets != null && currentLiabilities != null && currentLiabilities > 0
       ? (currentAssets - (inventory ?? 0)) / currentLiabilities : null
 
     // Interest coverage
-    const interestExpenseVal = n(ish[0]?.interestExpense)
     let interestCoverage: number | null = null
     if (ebit != null && interestExpenseVal != null && interestExpenseVal < 0) {
       interestCoverage = ebit / Math.abs(interestExpenseVal)
     } else if (interestExpenseVal != null && interestExpenseVal === 0) {
-      interestCoverage = 999 // no debt convention
+      interestCoverage = 999
+    } else if (totalDebt == null || totalDebt === 0) {
+      interestCoverage = 999
     }
 
-    // DSO, DPO, CCC — null-safe, no silent zeros
-    const receivables = n(bs?.netReceivables)
-    const revenueAnnual = n(ish[0]?.totalRevenue)
-    const dso = receivables != null && revenueAnnual != null && revenueAnnual > 0
-      ? (receivables / revenueAnnual) * 365 : null
-
-    const payables = n(bs?.accountsPayable)
-    const cogs = n(ish[0]?.costOfRevenue)
-    const dpo = payables != null && cogs != null && cogs > 0
-      ? (payables / cogs) * 365 : null
-
-    const dio = inventory != null && cogs != null && cogs > 0
-      ? (inventory / cogs) * 365 : null
-
+    // Working capital metrics
+    const receivables = v(f0.receivables) ?? v(f0.accountsReceivable)
+    const dso = receivables != null && rev0 != null && rev0 > 0
+      ? (receivables / rev0) * 365 : null
+    const payables = v(f0.accountsPayable)
+    const dpo = payables != null && costOfRevenue != null && costOfRevenue > 0
+      ? (payables / costOfRevenue) * 365 : null
+    const dio = inventory != null && costOfRevenue != null && costOfRevenue > 0
+      ? (inventory / costOfRevenue) * 365 : null
     const cashConversionCycle = dso != null && dpo != null
       ? dso + (dio ?? 0) - dpo : null
 
     // CapEx intensity
-    const capexRaw = n(cfs[0]?.capitalExpenditures)
-    const capexIntensity = capexRaw != null && revenueAnnual != null && revenueAnnual > 0
-      ? Math.abs(capexRaw) / revenueAnnual : null
+    const capex = v(f0.capitalExpenditure)
+    const capexIntensity = capex != null && rev0 != null && rev0 > 0
+      ? Math.abs(capex) / rev0 : null
 
     // Accruals ratio
-    const netIncomeRecent = n(ish[0]?.netIncome)
-    const opCashFlowRecent = n(cfs[0]?.totalCashFromOperatingActivities)
-    const totalAssetsRecent = n(bs?.totalAssets)
-    const totalAssetsPrev = n(bsPrev?.totalAssets)
+    const netIncome0 = v(f0.netIncome)
+    const opCashFlow0 = v(f0.operatingCashFlow)
+    const totalAssets0 = v(f0.totalAssets)
+    const totalAssets1 = v(f1.totalAssets)
     const accrualsRatio = (() => {
-      if (netIncomeRecent == null || opCashFlowRecent == null) return null
-      if (totalAssetsRecent == null || totalAssetsPrev == null) return null
-      const avg = (totalAssetsRecent + totalAssetsPrev) / 2
+      if (netIncome0 == null || opCashFlow0 == null) return null
+      if (totalAssets0 == null || totalAssets1 == null) return null
+      const avg = (totalAssets0 + totalAssets1) / 2
       if (avg === 0) return null
-      return (netIncomeRecent - opCashFlowRecent) / avg
+      return (netIncome0 - opCashFlow0) / avg
     })()
 
     // ROIIC
     const roiic = (() => {
-      if (ish.length < 2 || bsh.length < 2) return null
-      const ebitN = n(ish[0]?.ebit) ?? n(ish[0]?.operatingIncome)
-      const ebitN1 = n(ish[1]?.ebit) ?? n(ish[1]?.operatingIncome)
+      const ebitN = v(f0.EBIT) ?? v(f0.operatingIncome)
+      const ebitN1 = v(f1.EBIT) ?? v(f1.operatingIncome)
       if (ebitN == null || ebitN1 == null) return null
       const taxRate = 0.25
-      const nopatN = ebitN * (1 - taxRate)
-      const nopatN1 = ebitN1 * (1 - taxRate)
-      const deltaNopat = nopatN - nopatN1
-
-      const equityN = n(bs?.totalStockholderEquity) ?? 0
-      const debtN = n(fd?.totalDebt) ?? n(bs?.longTermDebt) ?? 0
-      const cashN = n(fd?.totalCash) ?? n(bs?.cash) ?? 0
-      const icN = equityN + debtN - cashN
-
-      const equityN1 = n(bsPrev?.totalStockholderEquity) ?? 0
-      const debtN1 = n(bsPrev?.longTermDebt) ?? 0
-      const cashN1 = n(bsPrev?.cash) ?? 0
-      const icN1 = equityN1 + debtN1 - cashN1
-
+      const deltaNopat = ebitN * (1 - taxRate) - ebitN1 * (1 - taxRate)
+      const icN = v(f0.investedCapital) ?? ((v(f0.commonStockEquity) ?? 0) + (v(f0.totalDebt) ?? 0) - (v(f0.cashAndCashEquivalents) ?? 0))
+      const icN1 = v(f1.investedCapital) ?? ((v(f1.commonStockEquity) ?? 0) + (v(f1.totalDebt) ?? 0) - (v(f1.cashAndCashEquivalents) ?? 0))
       const deltaIC = icN - icN1
       if (deltaIC <= 0) return null
       return (deltaNopat / deltaIC) * 100
     })()
 
+    // Margins
+    const grossMargin = v(fd?.grossMargins) != null ? v(fd?.grossMargins)! * 100 : null
+    const operatingMargin = v(fd?.operatingMargins) != null ? v(fd?.operatingMargins)! * 100 : null
+
     // FCF yield & P/FCF
-    const sharesOutstanding = n(ks?.sharesOutstanding) ?? n(q?.sharesOutstanding)
     const latestFCF = freeCashFlow3Y?.[0] ?? null
     const fcfPerShare = latestFCF != null && sharesOutstanding != null && sharesOutstanding > 0
-      ? normalizePrice(latestFCF / sharesOutstanding, ticker)
-      : null
+      ? normalizePrice(latestFCF / sharesOutstanding, ticker) : null
     const pFcf = price != null && fcfPerShare != null && fcfPerShare > 0
       ? price / fcfPerShare : null
     const rawFcfYield = fcfPerShare != null && price != null && price > 0
       ? (fcfPerShare / price) * 100 : null
     const fcfYield = rawFcfYield != null ? (rawFcfYield < -100 || rawFcfYield > 100 ? null : rawFcfYield) : null
 
+    // EV/EBIT
+    const marketCap = v(q?.marketCap)
+    const evEbit = (() => {
+      if (!marketCap || !ebit || ebit <= 0) return null
+      const ev = marketCap + (totalDebt ?? 0) - (totalCash ?? 0)
+      return ev / ebit
+    })()
+
     // Earnings history
     const eh = s?.earningsHistory as any
     const earningsHistory = eh?.history?.map((e: any) => ({
       period: e?.period ?? '',
-      epsEstimate: n(e?.epsEstimate),
-      epsActual: n(e?.epsActual),
-      surprisePercent: n(e?.surprisePercent),
+      epsEstimate: v(e?.epsEstimate),
+      epsActual: v(e?.epsActual),
+      surprisePercent: v(e?.surprisePercent),
     })) ?? null
 
     // 6M performance
@@ -274,10 +261,7 @@ export async function getFinancials(ticker: string): Promise<FinancialData | nul
     try {
       const sixMonthsAgo = new Date()
       sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6)
-      const chart = await yf.chart(ticker, {
-        period1: sixMonthsAgo,
-        interval: '1mo',
-      })
+      const chart = await yf.chart(ticker, { period1: sixMonthsAgo, interval: '1mo' })
       const closes = chart?.quotes?.map((cq: any) => cq.close).filter(Boolean) ?? []
       if (closes.length >= 2) {
         const first = normalizePrice(closes[0], ticker)
@@ -286,52 +270,29 @@ export async function getFinancials(ticker: string): Promise<FinancialData | nul
       }
     } catch {}
 
-    const ebitda = n(fd?.ebitda)
-    const marketCap = n(q?.marketCap)
-
-    const evEbit = (() => {
-      if (!marketCap || !ebit || ebit <= 0) return null
-      const ev = marketCap + (totalDebt ?? 0) - (totalCash ?? 0)
-      return ev / ebit
-    })()
-
     return {
       ticker,
       name: q?.shortName ?? q?.longName ?? ap?.companyName ?? ticker,
-      price,
-      marketCap,
+      price, marketCap,
       sector: ap?.sector ?? q?.sector ?? null,
       exchange: q?.exchange ?? null,
       currency: q?.currency ?? null,
-      pe: n(sd?.trailingPE) ?? n(q?.trailingPE),
-      peg: n(ks?.pegRatio),
-      evEbit,
-      pFcf,
-      fcfYield,
+      pe: v(sd?.trailingPE) ?? v(q?.trailingPE),
+      peg: v(ks?.pegRatio),
+      evEbit, pFcf, fcfYield,
       revenue3Y: revenue3Y && revenue3Y.length >= 2 ? revenue3Y : null,
       netIncome3Y: netIncome3Y && netIncome3Y.length >= 2 ? netIncome3Y : null,
       freeCashFlow3Y: freeCashFlow3Y && freeCashFlow3Y.length >= 2 ? freeCashFlow3Y : null,
-      totalDebt,
-      totalCash,
-      ebitda,
+      totalDebt, totalCash, ebitda,
       interestExpense: interestExpenseVal,
       sharesOutstanding,
-      grossMargin: n(fd?.grossMargins) != null ? n(fd?.grossMargins)! * 100 : null,
-      operatingMargin: n(fd?.operatingMargins) != null ? n(fd?.operatingMargins)! * 100 : null,
+      grossMargin, operatingMargin,
       roic: sanitizedRoic,
       revenueGrowthYoY,
-      currentRatio,
-      quickRatio,
-      interestCoverage,
-      dso,
-      dpo,
-      cashConversionCycle,
-      high52w,
-      distanceFromATH,
-      performance6M,
-      capexIntensity,
-      accrualsRatio,
-      roiic,
+      currentRatio, quickRatio, interestCoverage,
+      dso, dpo, cashConversionCycle,
+      high52w, distanceFromATH, performance6M,
+      capexIntensity, accrualsRatio, roiic,
       earningsHistory,
       priceHistory3M: null,
     }
