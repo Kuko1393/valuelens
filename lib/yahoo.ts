@@ -3,16 +3,24 @@ async function getYF(): Promise<any> {
   if (!_yf) {
     const mod: any = await import('yahoo-finance2')
     const YF = mod.default ?? mod
-    _yf = typeof YF === 'function' ? new (YF as any)() : YF
+    const instance = typeof YF === 'function' ? new (YF as any)() : YF
+    if (instance._opts) {
+      instance._opts.validation = { logErrors: false }
+    }
+    if (instance.setGlobalConfig) {
+      instance.setGlobalConfig({ validation: { logErrors: false } })
+    }
+    _yf = instance
   }
   return _yf
 }
 
-async function withRetry<T>(fn: () => Promise<T>, retries = 2): Promise<T | null> {
+async function withRetry<T>(fn: () => Promise<T>, label = '', retries = 2): Promise<T | null> {
   for (let i = 0; i <= retries; i++) {
     try {
       return await fn()
-    } catch (e) {
+    } catch (e: any) {
+      console.error(`[yahoo] ${label} attempt ${i+1}/${retries+1} failed:`, e?.message?.slice(0, 200))
       if (i === retries) return null
       await new Promise(r => setTimeout(r, i === 0 ? 1000 : 3000))
     }
@@ -81,7 +89,7 @@ export async function getFinancials(ticker: string): Promise<FinancialData | nul
     const yf = await getYF()
 
     const [quote, summary] = await Promise.all([
-      withRetry(() => yf.quote(ticker, {}, { validateResult: false })),
+      withRetry(() => yf.quote(ticker, {}, { validateResult: false }), `quote:${ticker}`),
       withRetry(() => yf.quoteSummary(ticker, {
         modules: [
           'summaryDetail',
@@ -93,7 +101,7 @@ export async function getFinancials(ticker: string): Promise<FinancialData | nul
           'assetProfile',
           'earningsHistory',
         ],
-      }, { validateResult: false })),
+      }, { validateResult: false }), `summary:${ticker}`),
     ])
 
     if (!quote && !summary) return null
