@@ -207,7 +207,8 @@ export default function Home() {
                   Aucune donnee. Cliquez &quot;Rafraichir les donnees&quot; pour commencer.
                 </td></tr>
               ) : companies.map(c => (
-                <tr key={c.id} className="border-t border-gray-800 hover:bg-secondary/50 transition-colors">
+                <tr key={c.id} className="border-t border-gray-800 hover:bg-secondary/50 transition-colors cursor-pointer"
+                  onClick={() => window.location.href = `/company/${c.ticker}`}>
                   <td className="p-3 font-mono font-bold sticky left-0 bg-primary z-10">{c.ticker}</td>
                   <td className="p-3 max-w-[200px] truncate">{c.name}</td>
                   <td className="p-3 text-gray-400 text-xs">{c.sector ?? '—'}</td>
