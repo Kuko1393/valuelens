@@ -1,9 +1,9 @@
 let _yf: any = null
-async function getYF() {
+async function getYF(): Promise<any> {
   if (!_yf) {
-    const mod = await import('yahoo-finance2')
+    const mod: any = await import('yahoo-finance2')
     const YF = mod.default ?? mod
-    _yf = typeof YF === 'function' ? new YF() : YF
+    _yf = typeof YF === 'function' ? new (YF as any)() : YF
   }
   return _yf
 }
