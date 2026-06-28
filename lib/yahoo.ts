@@ -8,6 +8,18 @@ async function getYF(): Promise<any> {
   return _yf
 }
 
+async function withRetry<T>(fn: () => Promise<T>, retries = 2): Promise<T | null> {
+  for (let i = 0; i <= retries; i++) {
+    try {
+      return await fn()
+    } catch (e) {
+      if (i === retries) return null
+      await new Promise(r => setTimeout(r, i === 0 ? 1000 : 3000))
+    }
+  }
+  return null
+}
+
 export interface FinancialData {
   ticker: string
   name: string
@@ -42,6 +54,9 @@ export interface FinancialData {
   high52w: number | null
   distanceFromATH: number | null
   performance6M: number | null
+  capexIntensity: number | null
+  accrualsRatio: number | null
+  roiic: number | null
   earningsHistory: {
     period: string
     epsEstimate: number | null
@@ -57,12 +72,17 @@ function n(v: any): number | null {
   return typeof raw === 'number' && isFinite(raw) ? raw : null
 }
 
+function normalizePrice(price: number, ticker: string): number {
+  return ticker.endsWith('.L') ? price / 100 : price
+}
+
 export async function getFinancials(ticker: string): Promise<FinancialData | null> {
   try {
     const yf = await getYF()
+
     const [quote, summary] = await Promise.all([
-      yf.quote(ticker).catch(() => null),
-      yf.quoteSummary(ticker, {
+      withRetry(() => yf.quote(ticker, {}, { validateResult: false })),
+      withRetry(() => yf.quoteSummary(ticker, {
         modules: [
           'summaryDetail',
           'defaultKeyStatistics',
@@ -73,35 +93,35 @@ export async function getFinancials(ticker: string): Promise<FinancialData | nul
           'assetProfile',
           'earningsHistory',
         ],
-      }).catch(() => null),
+      }, { validateResult: false })),
     ])
 
     if (!quote && !summary) return null
 
     const q = quote as any
-    const sd = summary?.summaryDetail as any ?? {}
-    const ks = summary?.defaultKeyStatistics as any ?? {}
-    const fd = summary?.financialData as any ?? {}
-    const ap = summary?.assetProfile as any ?? {}
-
-    const isPence = q?.currency === 'GBX' || q?.currency === 'GBp'
-    const divisor = isPence ? 100 : 1
+    const s = summary as any
+    const sd = s?.summaryDetail ?? {}
+    const ks = s?.defaultKeyStatistics ?? {}
+    const fd = s?.financialData ?? {}
+    const ap = s?.assetProfile ?? {}
 
     const rawPrice = n(q?.regularMarketPrice) ?? n(fd?.currentPrice)
-    const price = rawPrice != null ? rawPrice / divisor : null
+    const price = rawPrice != null ? normalizePrice(rawPrice, ticker) : null
 
-    const high52w = n(q?.fiftyTwoWeekHigh) != null ? n(q?.fiftyTwoWeekHigh)! / divisor : null
+    const rawHigh52w = n(q?.fiftyTwoWeekHigh)
+    const high52w = rawHigh52w != null ? normalizePrice(rawHigh52w, ticker) : null
     const distanceFromATH = price != null && high52w != null && high52w > 0
       ? ((price - high52w) / high52w) * 100
       : null
 
     // Income statement (annual)
-    const ish: any[] = summary?.incomeStatementHistory?.incomeStatementHistory ?? []
+    const ish: any[] = s?.incomeStatementHistory?.incomeStatementHistory ?? []
     // Cashflow statement (annual)
-    const cfs: any[] = summary?.cashflowStatementHistory?.cashflowStatements ?? []
-    // Balance sheet (annual)
-    const bsh: any[] = summary?.balanceSheetHistory?.balanceSheetStatements ?? []
+    const cfs: any[] = s?.cashflowStatementHistory?.cashflowStatements ?? []
+    // Balance sheet (annual, most recent first)
+    const bsh: any[] = s?.balanceSheetHistory?.balanceSheetStatements ?? []
     const bs = bsh[0] ?? {}
+    const bsPrev = bsh[1] ?? {}
 
     // Revenue 3Y (most recent first)
     const revenue3Y = ish.length >= 2
@@ -119,23 +139,23 @@ export async function getFinancials(ticker: string): Promise<FinancialData | nul
           const opCF = n(s?.totalCashFromOperatingActivities)
           const capex = n(s?.capitalExpenditures)
           if (opCF == null) return null
-          return opCF + (capex ?? 0) // capex is negative in Yahoo
+          return opCF + (capex ?? 0)
         }).filter((v): v is number => v != null)
       : null
 
-    // Revenue growth YoY (annual)
+    // Revenue growth YoY (annual only)
     const revenueGrowthYoY = (() => {
       if (!ish || ish.length < 2) return null
       const recent = n(ish[0]?.totalRevenue)
       const prior = n(ish[1]?.totalRevenue)
-      if (!recent || !prior || prior <= 0) return null
-      const g = ((recent - prior) / prior) * 100
+      if (!recent || !prior || prior === 0) return null
+      const g = ((recent - prior) / Math.abs(prior)) * 100
       if (g < -80 || g > 500) return null
       return g
     })()
 
     // ROIC
-    const ebit = n(ish[0]?.ebit) ?? n(ish[0]?.operatingIncome) ?? n(fd?.operatingMargins != null && n(ish[0]?.totalRevenue) != null ? (fd.operatingMargins * n(ish[0]?.totalRevenue)!) : null)
+    const ebit = n(ish[0]?.ebit) ?? n(ish[0]?.operatingIncome)
     const totalDebt = n(fd?.totalDebt) ?? n(bs?.longTermDebt)
     const totalCash = n(fd?.totalCash) ?? n(bs?.cash)
     const totalEquity = n(bs?.totalStockholderEquity)
@@ -148,34 +168,87 @@ export async function getFinancials(ticker: string): Promise<FinancialData | nul
     // Balance sheet metrics
     const currentAssets = n(bs?.totalCurrentAssets)
     const currentLiabilities = n(bs?.totalCurrentLiabilities)
-    const currentRatio = currentAssets && currentLiabilities && currentLiabilities > 0
+    const currentRatio = currentAssets != null && currentLiabilities != null && currentLiabilities > 0
       ? currentAssets / currentLiabilities : null
-    const inventory = n(bs?.inventory) ?? 0
-    const quickRatio = currentAssets && currentLiabilities && currentLiabilities > 0
-      ? (currentAssets - inventory) / currentLiabilities : null
+    const inventory = n(bs?.inventory)
+    const quickRatio = currentAssets != null && currentLiabilities != null && currentLiabilities > 0
+      ? (currentAssets - (inventory ?? 0)) / currentLiabilities : null
 
+    // Interest coverage
     const interestExpenseVal = n(ish[0]?.interestExpense)
-    const interestCoverage = ebit != null && interestExpenseVal != null && interestExpenseVal < 0
-      ? ebit / Math.abs(interestExpenseVal) : null
+    let interestCoverage: number | null = null
+    if (ebit != null && interestExpenseVal != null && interestExpenseVal < 0) {
+      interestCoverage = ebit / Math.abs(interestExpenseVal)
+    } else if (interestExpenseVal != null && interestExpenseVal === 0) {
+      interestCoverage = 999 // no debt convention
+    }
 
-    // DSO, DPO, CCC
+    // DSO, DPO, CCC — null-safe, no silent zeros
     const receivables = n(bs?.netReceivables)
     const revenueAnnual = n(ish[0]?.totalRevenue)
-    const dso = receivables && revenueAnnual && revenueAnnual > 0
+    const dso = receivables != null && revenueAnnual != null && revenueAnnual > 0
       ? (receivables / revenueAnnual) * 365 : null
+
     const payables = n(bs?.accountsPayable)
     const cogs = n(ish[0]?.costOfRevenue)
-    const dpo = payables && cogs && cogs > 0
+    const dpo = payables != null && cogs != null && cogs > 0
       ? (payables / cogs) * 365 : null
-    const dio = inventory && cogs && cogs > 0 ? (inventory / cogs) * 365 : null
+
+    const dio = inventory != null && cogs != null && cogs > 0
+      ? (inventory / cogs) * 365 : null
+
     const cashConversionCycle = dso != null && dpo != null
       ? dso + (dio ?? 0) - dpo : null
 
-    // FCF yield
+    // CapEx intensity
+    const capexRaw = n(cfs[0]?.capitalExpenditures)
+    const capexIntensity = capexRaw != null && revenueAnnual != null && revenueAnnual > 0
+      ? Math.abs(capexRaw) / revenueAnnual : null
+
+    // Accruals ratio
+    const netIncomeRecent = n(ish[0]?.netIncome)
+    const opCashFlowRecent = n(cfs[0]?.totalCashFromOperatingActivities)
+    const totalAssetsRecent = n(bs?.totalAssets)
+    const totalAssetsPrev = n(bsPrev?.totalAssets)
+    const accrualsRatio = (() => {
+      if (netIncomeRecent == null || opCashFlowRecent == null) return null
+      if (totalAssetsRecent == null || totalAssetsPrev == null) return null
+      const avg = (totalAssetsRecent + totalAssetsPrev) / 2
+      if (avg === 0) return null
+      return (netIncomeRecent - opCashFlowRecent) / avg
+    })()
+
+    // ROIIC
+    const roiic = (() => {
+      if (ish.length < 2 || bsh.length < 2) return null
+      const ebitN = n(ish[0]?.ebit) ?? n(ish[0]?.operatingIncome)
+      const ebitN1 = n(ish[1]?.ebit) ?? n(ish[1]?.operatingIncome)
+      if (ebitN == null || ebitN1 == null) return null
+      const taxRate = 0.25
+      const nopatN = ebitN * (1 - taxRate)
+      const nopatN1 = ebitN1 * (1 - taxRate)
+      const deltaNopat = nopatN - nopatN1
+
+      const equityN = n(bs?.totalStockholderEquity) ?? 0
+      const debtN = n(fd?.totalDebt) ?? n(bs?.longTermDebt) ?? 0
+      const cashN = n(fd?.totalCash) ?? n(bs?.cash) ?? 0
+      const icN = equityN + debtN - cashN
+
+      const equityN1 = n(bsPrev?.totalStockholderEquity) ?? 0
+      const debtN1 = n(bsPrev?.longTermDebt) ?? 0
+      const cashN1 = n(bsPrev?.cash) ?? 0
+      const icN1 = equityN1 + debtN1 - cashN1
+
+      const deltaIC = icN - icN1
+      if (deltaIC <= 0) return null
+      return (deltaNopat / deltaIC) * 100
+    })()
+
+    // FCF yield & P/FCF
     const sharesOutstanding = n(ks?.sharesOutstanding) ?? n(q?.sharesOutstanding)
     const latestFCF = freeCashFlow3Y?.[0] ?? null
-    const fcfPerShare = latestFCF != null && sharesOutstanding && sharesOutstanding > 0
-      ? latestFCF / sharesOutstanding / divisor
+    const fcfPerShare = latestFCF != null && sharesOutstanding != null && sharesOutstanding > 0
+      ? normalizePrice(latestFCF / sharesOutstanding, ticker)
       : null
     const pFcf = price != null && fcfPerShare != null && fcfPerShare > 0
       ? price / fcfPerShare : null
@@ -184,7 +257,7 @@ export async function getFinancials(ticker: string): Promise<FinancialData | nul
     const fcfYield = rawFcfYield != null ? (rawFcfYield < -100 || rawFcfYield > 100 ? null : rawFcfYield) : null
 
     // Earnings history
-    const eh = summary?.earningsHistory as any
+    const eh = s?.earningsHistory as any
     const earningsHistory = eh?.history?.map((e: any) => ({
       period: e?.period ?? '',
       epsEstimate: n(e?.epsEstimate),
@@ -192,7 +265,7 @@ export async function getFinancials(ticker: string): Promise<FinancialData | nul
       surprisePercent: n(e?.surprisePercent),
     })) ?? null
 
-    // 6M performance via chart
+    // 6M performance
     let performance6M: number | null = null
     try {
       const sixMonthsAgo = new Date()
@@ -201,10 +274,10 @@ export async function getFinancials(ticker: string): Promise<FinancialData | nul
         period1: sixMonthsAgo,
         interval: '1mo',
       })
-      const closes = chart?.quotes?.map((q: any) => q.close).filter(Boolean) ?? []
+      const closes = chart?.quotes?.map((cq: any) => cq.close).filter(Boolean) ?? []
       if (closes.length >= 2) {
-        const first = closes[0] / divisor
-        const last = closes[closes.length - 1] / divisor
+        const first = normalizePrice(closes[0], ticker)
+        const last = normalizePrice(closes[closes.length - 1], ticker)
         if (first > 0) performance6M = ((last - first) / first) * 100
       }
     } catch {}
@@ -252,6 +325,9 @@ export async function getFinancials(ticker: string): Promise<FinancialData | nul
       high52w,
       distanceFromATH,
       performance6M,
+      capexIntensity,
+      accrualsRatio,
+      roiic,
       earningsHistory,
       priceHistory3M: null,
     }

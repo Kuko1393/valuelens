@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { TICKER_UNIVERSE } from '@/config/tickers'
 import { getFinancials } from '@/lib/yahoo'
-import { estimateIntrinsicValue } from '@/lib/dcf'
+import { estimateIntrinsicValue, estimateDCFScenarios } from '@/lib/dcf'
 import { calculateScore, classifyCompany, computeMarginOfSafety, calculateGuidanceScore } from '@/lib/scoring'
 import { prisma } from '@/lib/db'
 
@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
   let success = 0, failed = 0
   const errors: string[] = []
   const { default: pLimit } = await import('p-limit')
-  const limit = pLimit(3)
+  const limit = pLimit(5)
 
   const batchSize = 10
   for (let i = 0; i < tickers.length; i += batchSize) {
@@ -31,28 +31,32 @@ export async function GET(req: NextRequest) {
         limit(async () => {
           try {
             const data = await getFinancials(t)
-            if (!data || !data.price) {
+            if (!data) {
               failed++
               errors.push(t)
               return
             }
 
             if (data.marketCap && data.marketCap < 55_000_000) {
-              console.log(`[refresh] Skip ${t}: marketCap too small`)
               failed++
               return
             }
 
             const fcfPerShare =
               data.freeCashFlow3Y?.at(-1) != null && data.sharesOutstanding && data.sharesOutstanding > 0
-                ? data.freeCashFlow3Y.at(-1)! / data.sharesOutstanding
+                ? (data.freeCashFlow3Y.at(-1)! / data.sharesOutstanding) * (t.endsWith('.L') ? 0.01 : 1)
                 : null
 
             const iv = estimateIntrinsicValue(fcfPerShare, data.pe)
             const mos = computeMarginOfSafety(iv, data.price)
+            const cagr = data.revenue3Y && data.revenue3Y.length >= 2
+              ? ((data.revenue3Y[0] / data.revenue3Y[data.revenue3Y.length - 1]) ** (1 / (data.revenue3Y.length - 1)) - 1) * 100
+              : null
             const score = calculateScore(data, iv)
-            const category = classifyCompany(score, mos)
+            const category = classifyCompany(score, mos, data.roic, cagr)
             const guidanceScore = calculateGuidanceScore(data.earningsHistory)
+
+            const dcf = estimateDCFScenarios(fcfPerShare, data.price)
 
             await prisma.company.upsert({
               where: { ticker: t },
@@ -61,6 +65,7 @@ export async function GET(req: NextRequest) {
                 sector: data.sector,
                 exchange: data.exchange,
                 marketCap: data.marketCap,
+                currentPrice: data.price,
                 score: score.total,
                 category,
               },
@@ -70,6 +75,7 @@ export async function GET(req: NextRequest) {
                 sector: data.sector,
                 exchange: data.exchange,
                 marketCap: data.marketCap,
+                currentPrice: data.price,
                 score: score.total,
                 category,
               },
@@ -82,25 +88,56 @@ export async function GET(req: NextRequest) {
               where: { companyId: company.id },
               update: {
                 roic: data.roic,
-                revenueCAGR3Y: data.revenue3Y && data.revenue3Y.length >= 2
-                  ? ((data.revenue3Y[0] / data.revenue3Y[data.revenue3Y.length - 1]) ** (1 / (data.revenue3Y.length - 1)) - 1) * 100
-                  : null,
-                netDebtEbitda: data.totalDebt && data.ebitda && data.ebitda > 0
-                  ? (data.totalDebt - (data.totalCash ?? 0)) / data.ebitda : null,
+                revenueCAGR3Y: cagr,
+                netDebtEbitda: data.ebitda && data.ebitda > 0 && (data.totalDebt != null || data.totalCash != null)
+                  ? ((data.totalDebt ?? 0) - (data.totalCash ?? 0)) / data.ebitda : null,
                 interestCoverage: data.interestCoverage,
                 fcfYield: data.fcfYield,
                 guidanceScore,
                 marginOfSafety: mos,
+                distanceFromATH: data.distanceFromATH,
+                performance6M: data.performance6M,
+                revenueGrowthYoY: data.revenueGrowthYoY,
+                currentRatio: data.currentRatio,
+                quickRatio: data.quickRatio,
+                dso: data.dso,
+                dpo: data.dpo,
+                cashConversionCycle: data.cashConversionCycle,
+                capexIntensity: data.capexIntensity,
+                accrualsRatio: data.accrualsRatio,
+                roiic: data.roiic,
+                marginOfSafetyBear: dcf?.bear.marginOfSafety ?? null,
+                scoreCompounding: score.businessQuality,
+                scoreFinancial: score.financialStrength,
+                scoreValuation: score.valuation,
+                scoreEarnings: score.longTermVisibility,
               },
               create: {
                 companyId: company.id,
                 roic: data.roic,
-                revenueCAGR3Y: null,
-                netDebtEbitda: null,
+                revenueCAGR3Y: cagr,
+                netDebtEbitda: data.ebitda && data.ebitda > 0 && (data.totalDebt != null || data.totalCash != null)
+                  ? ((data.totalDebt ?? 0) - (data.totalCash ?? 0)) / data.ebitda : null,
                 interestCoverage: data.interestCoverage,
                 fcfYield: data.fcfYield,
                 guidanceScore,
                 marginOfSafety: mos,
+                distanceFromATH: data.distanceFromATH,
+                performance6M: data.performance6M,
+                revenueGrowthYoY: data.revenueGrowthYoY,
+                currentRatio: data.currentRatio,
+                quickRatio: data.quickRatio,
+                dso: data.dso,
+                dpo: data.dpo,
+                cashConversionCycle: data.cashConversionCycle,
+                capexIntensity: data.capexIntensity,
+                accrualsRatio: data.accrualsRatio,
+                roiic: data.roiic,
+                marginOfSafetyBear: dcf?.bear.marginOfSafety ?? null,
+                scoreCompounding: score.businessQuality,
+                scoreFinancial: score.financialStrength,
+                scoreValuation: score.valuation,
+                scoreEarnings: score.longTermVisibility,
               },
             })
 

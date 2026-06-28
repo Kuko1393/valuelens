@@ -9,6 +9,7 @@ type Company = {
   sector: string | null
   exchange: string | null
   marketCap: number | null
+  currentPrice: number | null
   score: number | null
   category: string | null
   metrics: {
@@ -19,6 +20,7 @@ type Company = {
     fcfYield: number | null
     guidanceScore: number | null
     marginOfSafety: number | null
+    distanceFromATH: number | null
   } | null
   valuation: {
     pe: number | null
@@ -181,6 +183,10 @@ export default function Home() {
                   Score {sortBy === 'score' && (order === 'desc' ? '↓' : '↑')}
                 </th>
                 <th className="p-3">Categorie</th>
+                <th className="p-3 cursor-pointer hover:text-white" onClick={() => toggleSort('currentPrice')}>
+                  Prix {sortBy === 'currentPrice' && (order === 'desc' ? '↓' : '↑')}
+                </th>
+                <th className="p-3">ATH%</th>
                 <th className="p-3 cursor-pointer hover:text-white" onClick={() => toggleSort('marketCap')}>
                   Mcap {sortBy === 'marketCap' && (order === 'desc' ? '↓' : '↑')}
                 </th>
@@ -195,9 +201,9 @@ export default function Home() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={13} className="p-8 text-center text-gray-400">Chargement...</td></tr>
+                <tr><td colSpan={15} className="p-8 text-center text-gray-400">Chargement...</td></tr>
               ) : companies.length === 0 ? (
-                <tr><td colSpan={13} className="p-8 text-center text-gray-400">
+                <tr><td colSpan={15} className="p-8 text-center text-gray-400">
                   Aucune donnee. Cliquez &quot;Rafraichir les donnees&quot; pour commencer.
                 </td></tr>
               ) : companies.map(c => (
@@ -210,6 +216,10 @@ export default function Home() {
                   </td>
                   <td className={`p-3 text-xs ${categoryColor(c.category)}`}>
                     {c.category ?? '—'}
+                  </td>
+                  <td className="p-3 font-mono">{c.currentPrice != null ? c.currentPrice.toFixed(2) : '—'}</td>
+                  <td className={`p-3 ${(c.metrics?.distanceFromATH ?? 0) > -10 ? 'text-green-400' : 'text-red-400'}`}>
+                    {formatNum(c.metrics?.distanceFromATH)}
                   </td>
                   <td className="p-3 text-gray-300">{formatMcap(c.marketCap)}</td>
                   <td className="p-3">{formatNum(c.metrics?.roic)}</td>
