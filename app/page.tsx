@@ -1,6 +1,19 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import Link from 'next/link'
+
+type Metrics = {
+  roic: number | null
+  revenueCAGR3Y: number | null
+  netDebtEbitda: number | null
+  interestCoverage: number | null
+  fcfYield: number | null
+  guidanceScore: number | null
+  marginOfSafety: number | null
+  distanceFromATH: number | null
+  revenueGrowthYoY: number | null
+}
 
 type Company = {
   id: string
@@ -12,31 +25,16 @@ type Company = {
   currentPrice: number | null
   score: number | null
   category: string | null
-  metrics: {
-    roic: number | null
-    revenueCAGR3Y: number | null
-    netDebtEbitda: number | null
-    interestCoverage: number | null
-    fcfYield: number | null
-    guidanceScore: number | null
-    marginOfSafety: number | null
-    distanceFromATH: number | null
-  } | null
-  valuation: {
-    pe: number | null
-    peg: number | null
-    evEbit: number | null
-    pFcf: number | null
-    intrinsicValue: number | null
-  } | null
+  metrics: Metrics | null
+  valuation: { pe: number | null; peg: number | null; evEbit: number | null; pFcf: number | null; intrinsicValue: number | null } | null
 }
 
-function formatNum(v: number | null | undefined, decimals = 1): string {
+function fmt(v: number | null | undefined, d = 1): string {
   if (v == null) return '—'
-  return v.toFixed(decimals)
+  return v.toFixed(d)
 }
 
-function formatMcap(v: number | null | undefined): string {
+function fmtMcap(v: number | null | undefined): string {
   if (v == null) return '—'
   if (v >= 1e12) return `${(v / 1e12).toFixed(1)}T`
   if (v >= 1e9) return `${(v / 1e9).toFixed(1)}B`
@@ -44,55 +42,54 @@ function formatMcap(v: number | null | undefined): string {
   return v.toFixed(0)
 }
 
-function categoryColor(cat: string | null): string {
-  switch (cat) {
-    case 'Quality Value': return 'text-green-400'
-    case 'Deep Value': return 'text-yellow-400'
-    case 'Reasonably Valued Compounder': return 'text-blue-400'
-    case 'Potential Value Trap': return 'text-red-400'
-    default: return 'text-gray-400'
-  }
-}
-
-function scoreColor(s: number | null): string {
-  if (s == null) return 'text-gray-400'
-  if (s >= 70) return 'text-green-400'
-  if (s >= 50) return 'text-blue-400'
-  if (s >= 30) return 'text-yellow-400'
-  return 'text-red-400'
-}
+const SECTORS = ['Technology','Financial Services','Healthcare','Consumer Cyclical','Consumer Defensive','Industrials','Energy','Basic Materials','Real Estate','Utilities','Communication Services']
+const CATEGORIES = ['Quality Value','Deep Value','Reasonably Valued Compounder','Potential Value Trap']
+const PAGE_SIZE = 25
 
 export default function Home() {
   const [companies, setCompanies] = useState<Company[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
+  const [page, setPage] = useState(0)
+  const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [sector, setSector] = useState('')
   const [category, setCategory] = useState('')
   const [sortBy, setSortBy] = useState('score')
   const [order, setOrder] = useState('desc')
+  const [scoreMin, setScoreMin] = useState(0)
+  const [roicMin, setRoicMin] = useState(0)
   const [refreshStatus, setRefreshStatus] = useState<'idle' | 'loading' | 'done' | 'error'>('idle')
   const [refreshMsg, setRefreshMsg] = useState('')
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 300)
+    return () => clearTimeout(t)
+  }, [search])
 
   const fetchData = useCallback(async () => {
     setLoading(true)
     try {
-      const params = new URLSearchParams()
-      if (sector) params.set('sector', sector)
-      if (category) params.set('category', category)
-      params.set('sortBy', sortBy)
-      params.set('order', order)
-      params.set('limit', '200')
-      const res = await fetch(`/api/screener?${params}`)
+      const p = new URLSearchParams()
+      if (debouncedSearch.length >= 2) p.set('search', debouncedSearch)
+      if (sector) p.set('sector', sector)
+      if (category) p.set('category', category)
+      if (scoreMin > 0) p.set('scoreMin', String(scoreMin))
+      if (roicMin > 0) p.set('roicMin', String(roicMin))
+      p.set('sortBy', sortBy)
+      p.set('order', order)
+      p.set('limit', String(PAGE_SIZE))
+      p.set('offset', String(page * PAGE_SIZE))
+      const res = await fetch(`/api/screener?${p}`)
       const data = await res.json()
       setCompanies(data.companies ?? [])
       setTotal(data.total ?? 0)
-    } catch {
-      setCompanies([])
-    }
+    } catch { setCompanies([]) }
     setLoading(false)
-  }, [sector, category, sortBy, order])
+  }, [debouncedSearch, sector, category, sortBy, order, page, scoreMin, roicMin])
 
   useEffect(() => { fetchData() }, [fetchData])
+  useEffect(() => { setPage(0) }, [debouncedSearch, sector, category, scoreMin, roicMin])
 
   const handleRefresh = async () => {
     if (refreshStatus === 'loading') return
@@ -117,127 +114,144 @@ export default function Home() {
     else { setSortBy(col); setOrder('desc') }
   }
 
+  const totalPages = Math.ceil(total / PAGE_SIZE)
+
   return (
-    <main className="min-h-screen bg-primary text-white p-4 md:p-8">
-      <div className="max-w-[1400px] mx-auto">
-        {/* Header */}
-        <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
-          <div>
-            <h1 className="text-3xl font-bold">ValueLens</h1>
-            <p className="text-gray-400 text-sm mt-1">
-              {total} entreprises &middot; Value Investing Screener
-            </p>
-          </div>
-          <div className="flex items-center gap-3">
-            <button
-              onClick={handleRefresh}
-              disabled={refreshStatus === 'loading'}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                refreshStatus === 'loading'
-                  ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
-                  : 'bg-accent hover:bg-blue-500 text-white cursor-pointer'
-              }`}
-            >
-              {refreshStatus === 'loading' ? 'Mise a jour...' : 'Rafraichir les donnees'}
-            </button>
-            {refreshMsg && <span className="text-sm text-gray-400">{refreshMsg}</span>}
-          </div>
+    <div style={{ minHeight: '100vh', background: 'var(--bg)' }}>
+      {/* Navbar */}
+      <nav style={{ position: 'sticky', top: 0, zIndex: 50, background: 'rgba(6,10,18,.92)', backdropFilter: 'blur(12px)', borderBottom: '1px solid var(--border)', padding: '0 24px', display: 'flex', alignItems: 'center', gap: 32, height: 56 }}>
+        <span style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-bright)' }}>Value<span style={{ color: 'var(--accent)' }}>Lens</span></span>
+        {[{ href: '/', label: 'Screener' }, { href: '/ideas', label: 'Opportunites' }, { href: '/watchlist', label: 'Watchlists' }].map(l => (
+          <Link key={l.href} href={l.href} style={{ padding: '6px 14px', borderRadius: 6, fontSize: 13, fontWeight: 500, textDecoration: 'none', color: l.href === '/' ? 'var(--accent)' : 'var(--text-dim)', background: l.href === '/' ? 'var(--accent-dim)' : 'transparent' }}>{l.label}</Link>
+        ))}
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <button onClick={handleRefresh} disabled={refreshStatus === 'loading'} className="btn btn-primary" style={{ padding: '6px 14px', fontSize: 12 }}>
+            {refreshStatus === 'loading' ? 'Mise a jour...' : 'Rafraichir'}
+          </button>
+          {refreshMsg && <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>{refreshMsg}</span>}
         </div>
+      </nav>
 
-        {/* Filters */}
-        <div className="flex flex-wrap gap-3 mb-6">
-          <select
-            value={sector}
-            onChange={e => setSector(e.target.value)}
-            className="bg-secondary border border-gray-700 rounded-lg px-3 py-2 text-sm"
-          >
-            <option value="">Tous les secteurs</option>
-            {['Technology','Financial Services','Healthcare','Consumer Cyclical',
-              'Consumer Defensive','Industrials','Energy','Basic Materials',
-              'Real Estate','Utilities','Communication Services'].map(s => (
-              <option key={s} value={s}>{s}</option>
-            ))}
-          </select>
-          <select
-            value={category}
-            onChange={e => setCategory(e.target.value)}
-            className="bg-secondary border border-gray-700 rounded-lg px-3 py-2 text-sm"
-          >
-            <option value="">Toutes les categories</option>
-            <option value="Quality Value">Quality Value</option>
-            <option value="Deep Value">Deep Value</option>
-            <option value="Reasonably Valued Compounder">Compounder</option>
-            <option value="Potential Value Trap">Value Trap</option>
-          </select>
-        </div>
+      <div style={{ maxWidth: 1500, margin: '0 auto', padding: '16px 24px', display: 'flex', gap: 16 }}>
+        {/* Sidebar */}
+        <aside style={{ width: 220, flexShrink: 0 }}>
+          <div className="card" style={{ padding: 16 }}>
+            <div style={{ marginBottom: 12 }}>
+              <input
+                placeholder="Rechercher..."
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                style={{ width: '100%', fontSize: 12 }}
+              />
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ fontSize: 10, color: 'var(--text-dim)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.08em' }}>Secteur</label>
+              <select value={sector} onChange={e => setSector(e.target.value)} style={{ width: '100%', fontSize: 12, marginTop: 4 }}>
+                <option value="">Tous</option>
+                {SECTORS.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ fontSize: 10, color: 'var(--text-dim)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.08em' }}>Categorie</label>
+              <select value={category} onChange={e => setCategory(e.target.value)} style={{ width: '100%', fontSize: 12, marginTop: 4 }}>
+                <option value="">Toutes</option>
+                {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ fontSize: 10, color: 'var(--text-dim)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.08em' }}>
+                Score min: {scoreMin}
+              </label>
+              <input type="range" min={0} max={90} step={5} value={scoreMin} onChange={e => setScoreMin(Number(e.target.value))}
+                style={{ width: '100%', marginTop: 4 }} />
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ fontSize: 10, color: 'var(--text-dim)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.08em' }}>
+                ROIC min: {roicMin}%
+              </label>
+              <input type="range" min={0} max={50} step={5} value={roicMin} onChange={e => setRoicMin(Number(e.target.value))}
+                style={{ width: '100%', marginTop: 4 }} />
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--muted)', borderTop: '1px solid var(--border)', paddingTop: 10, marginTop: 8 }}>
+              {total} resultats
+            </div>
+          </div>
+        </aside>
 
-        {/* Table */}
-        <div className="overflow-x-auto rounded-lg border border-gray-700">
-          <table className="w-full text-sm">
-            <thead className="bg-secondary text-gray-300 text-left">
-              <tr>
-                <th className="p-3 sticky left-0 bg-secondary z-10">Ticker</th>
-                <th className="p-3">Nom</th>
-                <th className="p-3">Secteur</th>
-                <th className="p-3 cursor-pointer hover:text-white" onClick={() => toggleSort('score')}>
-                  Score {sortBy === 'score' && (order === 'desc' ? '↓' : '↑')}
-                </th>
-                <th className="p-3">Categorie</th>
-                <th className="p-3 cursor-pointer hover:text-white" onClick={() => toggleSort('currentPrice')}>
-                  Prix {sortBy === 'currentPrice' && (order === 'desc' ? '↓' : '↑')}
-                </th>
-                <th className="p-3">ATH%</th>
-                <th className="p-3 cursor-pointer hover:text-white" onClick={() => toggleSort('marketCap')}>
-                  Mcap {sortBy === 'marketCap' && (order === 'desc' ? '↓' : '↑')}
-                </th>
-                <th className="p-3">ROIC%</th>
-                <th className="p-3">P/E</th>
-                <th className="p-3">FCF Yield%</th>
-                <th className="p-3">MoS%</th>
-                <th className="p-3">Guidance</th>
-                <th className="p-3">ND/EBITDA</th>
-                <th className="p-3">Int.Cov</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr><td colSpan={15} className="p-8 text-center text-gray-400">Chargement...</td></tr>
-              ) : companies.length === 0 ? (
-                <tr><td colSpan={15} className="p-8 text-center text-gray-400">
-                  Aucune donnee. Cliquez &quot;Rafraichir les donnees&quot; pour commencer.
-                </td></tr>
-              ) : companies.map(c => (
-                <tr key={c.id} className="border-t border-gray-800 hover:bg-secondary/50 transition-colors cursor-pointer"
-                  onClick={() => window.location.href = `/company/${c.ticker}`}>
-                  <td className="p-3 font-mono font-bold sticky left-0 bg-primary z-10">{c.ticker}</td>
-                  <td className="p-3 max-w-[200px] truncate">{c.name}</td>
-                  <td className="p-3 text-gray-400 text-xs">{c.sector ?? '—'}</td>
-                  <td className={`p-3 font-bold ${scoreColor(c.score)}`}>
-                    {c.score != null ? Math.round(c.score) : '—'}
-                  </td>
-                  <td className={`p-3 text-xs ${categoryColor(c.category)}`}>
-                    {c.category ?? '—'}
-                  </td>
-                  <td className="p-3 font-mono">{c.currentPrice != null ? c.currentPrice.toFixed(2) : '—'}</td>
-                  <td className={`p-3 ${(c.metrics?.distanceFromATH ?? 0) > -10 ? 'text-green-400' : 'text-red-400'}`}>
-                    {formatNum(c.metrics?.distanceFromATH)}
-                  </td>
-                  <td className="p-3 text-gray-300">{formatMcap(c.marketCap)}</td>
-                  <td className="p-3">{formatNum(c.metrics?.roic)}</td>
-                  <td className="p-3">{formatNum(c.valuation?.pe)}</td>
-                  <td className="p-3">{formatNum(c.metrics?.fcfYield)}</td>
-                  <td className={`p-3 ${(c.metrics?.marginOfSafety ?? 0) > 0 ? 'text-green-400' : 'text-red-400'}`}>
-                    {formatNum(c.metrics?.marginOfSafety)}
-                  </td>
-                  <td className="p-3">{c.metrics?.guidanceScore != null ? `${c.metrics.guidanceScore}/5` : '—'}</td>
-                  <td className="p-3">{formatNum(c.metrics?.netDebtEbitda)}</td>
-                  <td className="p-3">{formatNum(c.metrics?.interestCoverage, 0)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        {/* Main content */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {/* Table */}
+          <div className="card" style={{ overflow: 'hidden' }}>
+            <div style={{ overflowX: 'auto' }}>
+              <table className="screener-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                    <th style={{ padding: '10px 8px', position: 'sticky', left: 0, background: 'var(--card)', zIndex: 2 }}>Ticker</th>
+                    <th style={{ padding: '10px 8px' }}>Nom</th>
+                    <th style={{ padding: '10px 8px' }}>Secteur</th>
+                    <th style={{ padding: '10px 8px' }} onClick={() => toggleSort('currentPrice')}>
+                      Prix {sortBy === 'currentPrice' && (order === 'desc' ? '↓' : '↑')}
+                    </th>
+                    <th style={{ padding: '10px 8px' }}>ATH%</th>
+                    <th style={{ padding: '10px 8px' }}>MoS%</th>
+                    <th style={{ padding: '10px 8px' }} onClick={() => toggleSort('score')}>
+                      Score {sortBy === 'score' && (order === 'desc' ? '↓' : '↑')}
+                    </th>
+                    <th style={{ padding: '10px 8px' }}>Guidance</th>
+                    <th style={{ padding: '10px 8px' }}>Categorie</th>
+                    <th style={{ padding: '10px 8px' }}>ROIC%</th>
+                    <th style={{ padding: '10px 8px' }}>P/FCF</th>
+                    <th style={{ padding: '10px 8px' }}>ND/EBITDA</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {loading ? (
+                    <tr><td colSpan={12} style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}>Chargement...</td></tr>
+                  ) : companies.length === 0 ? (
+                    <tr><td colSpan={12} style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}>
+                      Aucun resultat. {total === 0 && 'Cliquez "Rafraichir" pour charger les donnees.'}
+                    </td></tr>
+                  ) : companies.map(c => {
+                    const m = c.metrics
+                    const v = c.valuation
+                    return (
+                      <tr key={c.id} style={{ cursor: 'pointer' }} onClick={() => window.location.href = `/company/${c.ticker}`}>
+                        <td style={{ padding: '8px', fontFamily: 'JetBrains Mono, monospace', fontWeight: 700, color: 'var(--accent)', position: 'sticky', left: 0, background: 'var(--card)', zIndex: 1 }}>{c.ticker}</td>
+                        <td style={{ padding: '8px', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</td>
+                        <td style={{ padding: '8px', color: 'var(--text-dim)', fontSize: 11 }}>{c.sector ?? '—'}</td>
+                        <td style={{ padding: '8px', fontFamily: 'JetBrains Mono, monospace' }}>{c.currentPrice?.toFixed(2) ?? '—'}</td>
+                        <td style={{ padding: '8px', fontFamily: 'JetBrains Mono, monospace', color: (m?.distanceFromATH ?? 0) > -10 ? 'var(--accent)' : 'var(--danger)' }}>{fmt(m?.distanceFromATH)}</td>
+                        <td style={{ padding: '8px', fontFamily: 'JetBrains Mono, monospace', color: (m?.marginOfSafety ?? 0) > 0 ? 'var(--accent)' : 'var(--danger)' }}>{fmt(m?.marginOfSafety)}</td>
+                        <td style={{ padding: '8px', fontFamily: 'JetBrains Mono, monospace', fontWeight: 700, color: (c.score ?? 0) >= 70 ? 'var(--accent)' : (c.score ?? 0) >= 50 ? 'var(--warning)' : 'var(--danger)' }}>{c.score != null ? Math.round(c.score) : '—'}</td>
+                        <td style={{ padding: '8px' }}>{m?.guidanceScore != null ? <span className={`tag ${m.guidanceScore >= 4 ? 'tag-green' : m.guidanceScore === 3 ? 'tag-yellow' : 'tag-red'}`}>{m.guidanceScore}/5</span> : <span style={{ color: 'var(--muted)' }}>—</span>}</td>
+                        <td style={{ padding: '8px' }}>{c.category ? <span className={`tag ${c.category === 'Quality Value' ? 'tag-green' : c.category === 'Deep Value' ? 'tag-blue' : c.category === 'Reasonably Valued Compounder' ? 'tag-gold' : 'tag-red'}`}>{c.category === 'Reasonably Valued Compounder' ? 'Compounder' : c.category}</span> : '—'}</td>
+                        <td style={{ padding: '8px', fontFamily: 'JetBrains Mono, monospace', color: (m?.roic ?? 0) > 15 ? 'var(--accent)' : 'var(--text)' }}>{fmt(m?.roic)}</td>
+                        <td style={{ padding: '8px', fontFamily: 'JetBrains Mono, monospace' }}>{fmt(v?.pFcf)}</td>
+                        <td style={{ padding: '8px', fontFamily: 'JetBrains Mono, monospace', color: (m?.netDebtEbitda ?? 0) < 2 ? 'var(--accent)' : 'var(--danger)' }}>{fmt(m?.netDebtEbitda)}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 16, padding: '12px 16px', borderTop: '1px solid var(--border)' }}>
+                <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0} className="btn btn-ghost" style={{ padding: '4px 12px', fontSize: 12 }}>
+                  Precedent
+                </button>
+                <span style={{ fontSize: 12, color: 'var(--text-dim)', fontFamily: 'JetBrains Mono, monospace' }}>
+                  Page {page + 1} / {totalPages}
+                </span>
+                <button onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1} className="btn btn-ghost" style={{ padding: '4px 12px', fontSize: 12 }}>
+                  Suivant
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
-    </main>
+    </div>
   )
 }
