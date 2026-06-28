@@ -3,13 +3,9 @@ async function getYF(): Promise<any> {
   if (!_yf) {
     const mod: any = await import('yahoo-finance2')
     const YF = mod.default ?? mod
-    const instance = typeof YF === 'function' ? new (YF as any)() : YF
-    if (instance._opts) {
-      instance._opts.validation = { logErrors: false }
-    }
-    if (instance.setGlobalConfig) {
-      instance.setGlobalConfig({ validation: { logErrors: false } })
-    }
+    const instance = typeof YF === 'function'
+      ? new (YF as any)({ suppressNotices: ['yahooSurvey'] })
+      : YF
     _yf = instance
   }
   return _yf
